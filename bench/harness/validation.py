@@ -22,7 +22,7 @@ from pathlib import Path
 from typing import Any
 
 from bench.harness import environment
-from bench.harness.config import RESULTS_DIR, HarnessError, ServerConfig
+from bench.harness.config import RESULTS_DIR, HarnessError, ServerConfig, pinned_revision
 from bench.harness.engine_benchmarks import (
     ENGINE_BENCHMARKS,
     FLAT_KEYS,
@@ -52,14 +52,32 @@ class ValidationConfig:
     out: Path = RESULTS_DIR / "raw" / "p06-validation.json"
 
 
-def validation_requests(workload: str, n: int, output_len: int) -> list[Request]:
+# SGLang's custom-dataset loader silently drops prompts under 2 tokens (datasets/custom.py,
+# v0.5.23); dropping them on every side keeps both sides on the same prompts.
+MIN_PROMPT_TOKENS = 2
+
+
+def validation_requests(
+    workload: str,
+    n: int,
+    output_len: int,
+    tokenizer: str | None = None,
+    revision: str | None = None,
+) -> list[Request]:
     """The first ``n`` single-turn requests of ``workload``, all with ``output_len`` tokens.
 
     Single-turn only, and one fixed output length, because not every benchmark tool supports
-    multi-turn requests or a per-request output length.
+    multi-turn requests or a per-request output length. With ``tokenizer`` (a model id),
+    prompts under ``MIN_PROMPT_TOKENS`` raw tokens (no chat template) are skipped.
     """
+    count_tokens = _token_counter(tokenizer, revision) if tokenizer else None
     _, requests = load_workload(workload)
-    single = [r for r in requests if r.is_single_turn]
+    single = [
+        r
+        for r in requests
+        if r.is_single_turn
+        and (count_tokens is None or count_tokens(r.messages[0]["content"]) >= MIN_PROMPT_TOKENS)
+    ]
     if len(single) < n:
         raise HarnessError(f"{workload} has only {len(single)} single-turn requests, need {n}")
     return [dataclasses.replace(r, max_tokens=output_len) for r in single[:n]]
@@ -91,7 +109,9 @@ async def validate_harness(cfg: ValidationConfig) -> dict[str, Any]:
     every concurrency level, so a failure later on never loses finished levels. A benchmark
     that fails is recorded with its error and the next one still runs; raises at the end if
     any failed."""
-    requests = validation_requests(cfg.workload, cfg.num_requests, cfg.output_len)
+    requests = validation_requests(
+        cfg.workload, cfg.num_requests, cfg.output_len, cfg.model, cfg.revision
+    )
     work_dir = cfg.out.with_suffix("")
     work_dir.mkdir(parents=True, exist_ok=True)
     report: dict[str, Any] = {
@@ -125,6 +145,14 @@ async def validate_harness(cfg: ValidationConfig) -> dict[str, Any]:
     return report
 
 
+def _token_counter(model: str, revision: str | None) -> Callable[[str], int]:
+    """Raw token count of a prompt with the model's tokenizer, as the tools count it."""
+    from transformers import AutoTokenizer
+
+    tokenizer = AutoTokenizer.from_pretrained(model, revision=revision or pinned_revision(model))
+    return lambda text: len(tokenizer.encode(text))
+
+
 async def _validate_benchmark(
     cfg: ValidationConfig,
     benchmark: EngineBenchmark,
@@ -136,6 +164,9 @@ async def _validate_benchmark(
     """Fill ``entry`` level by level, calling ``save`` after each one."""
     dataset = work_dir / f"{benchmark.name}.dataset.jsonl"
     benchmark.write_dataset([r.messages[0]["content"] for r in requests], dataset)
+    # Ours sends the prompts in the order the tool does: at a concurrency above 1 the order
+    # decides which prompts are prefilled together, which moves TTFT.
+    requests = [requests[i] for i in benchmark.send_order(len(requests))]
     server_cfg = ServerConfig(
         engine=benchmark.engine,
         model=cfg.model,
