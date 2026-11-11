@@ -9,6 +9,10 @@ with ``vllm bench serve`` (see ``validation.py``):
 - ``itl``: gaps between consecutive output chunks.
 - ``latency``: last output chunk - ``start_time`` (the trailing usage chunk does not count).
 - ``output_tokens``: from the server's ``usage`` (``stream_options.include_usage``).
+
+The client is aiohttp, as in both ``vllm bench serve`` and ``sglang.benchmark.serving``. An
+httpx client measured TTFT about 0.7 ms higher at concurrency 1, and tens of ms higher at
+concurrency 32, than both tools against a server with fixed delays: client time, not server.
 """
 
 from __future__ import annotations
@@ -19,7 +23,7 @@ import traceback
 from dataclasses import asdict, dataclass, field
 from typing import Any
 
-import httpx
+import aiohttp
 
 from bench.harness.workload import Request
 
@@ -87,7 +91,7 @@ def _parse_event(line: str) -> dict[str, Any] | None:
 
 
 async def stream_chat_completion(
-    client: httpx.AsyncClient,
+    session: aiohttp.ClientSession,
     url: str,
     model: str,
     request: Request,
@@ -105,13 +109,13 @@ async def stream_chat_completion(
     got_output = False
     try:
         payload = build_payload(model, request, extra_body)
-        async with client.stream("POST", url, json=payload) as response:
-            if response.status_code != 200:
-                body = await response.aread()
-                timing.error = f"HTTP {response.status_code}: {body[:500]!r}"
+        async with session.post(url, json=payload) as response:
+            if response.status != 200:
+                body = await response.read()
+                timing.error = f"HTTP {response.status}: {body[:500]!r}"
                 return timing
-            async for line in response.aiter_lines():
-                event = _parse_event(line)
+            async for raw in response.content:  # one SSE line at a time
+                event = _parse_event(raw.decode())
                 if event is None:
                     continue
                 now = time.perf_counter()

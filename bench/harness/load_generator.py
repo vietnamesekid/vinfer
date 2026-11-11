@@ -18,7 +18,7 @@ import time
 from collections.abc import Sequence
 from typing import Any
 
-import httpx
+import aiohttp
 import numpy as np
 
 from bench.harness.http_client import RequestTiming, stream_chat_completion
@@ -57,8 +57,12 @@ async def send_requests(
     # One event per session turn, set when that turn finishes.
     turn_done = {(r.session_id, r.turn): asyncio.Event() for r in requests if r.session_id}
 
-    limits = httpx.Limits(max_connections=max_concurrency + 8, max_keepalive_connections=None)
-    async with httpx.AsyncClient(timeout=httpx.Timeout(timeout_s), limits=limits) as client:
+    # Connection reuse as in `vllm bench serve` (serve.py, make_session), one connection per slot.
+    connector = aiohttp.TCPConnector(
+        limit=max_concurrency, limit_per_host=max_concurrency, keepalive_timeout=60
+    )
+    timeout = aiohttp.ClientTimeout(total=timeout_s)
+    async with aiohttp.ClientSession(connector=connector, timeout=timeout) as session:
         run_start = time.perf_counter()
 
         async def send(request: Request, arrival: float) -> RequestTiming:
@@ -68,7 +72,7 @@ async def send_requests(
                 await previous_turn.wait()
             try:
                 async with slots:
-                    timing = await stream_chat_completion(client, url, model, request, extra_body)
+                    timing = await stream_chat_completion(session, url, model, request, extra_body)
             finally:
                 if request.session_id:
                     turn_done[(request.session_id, request.turn)].set()

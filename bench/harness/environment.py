@@ -86,6 +86,6 @@ def software() -> dict[str, Any]:
     return {
         "python": platform.python_version(),
         "torch": _version("torch"),
-        "httpx": _version("httpx"),
+        "aiohttp": _version("aiohttp"),
         "os": platform.platform(),
     }
