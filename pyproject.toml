@@ -1,0 +1,63 @@
+[build-system]
+requires = ["hatchling>=1.25"]
+build-backend = "hatchling.build"
+
+[project]
+name = "vinfer"
+version = "0.0.1"
+description = "A from-scratch LLM inference engine, built in the open with reproducible experiments."
+readme = "README.md"
+license = "Apache-2.0"
+license-files = ["LICENSE"]
+requires-python = ">=3.11"
+# Lower bounds here; exact versions are pinned in uv.lock (commit it).
+dependencies = [
+    "torch>=2.5",
+    "safetensors>=0.4",
+    "huggingface-hub>=0.26",
+    "numpy>=1.26",
+]
+
+[project.optional-dependencies]
+server = ["fastapi>=0.115", "uvicorn>=0.32"]
+dev = [
+    "pytest>=8.3",
+    "ruff>=0.8",
+    "pre-commit>=4.0",
+]
+# HF Transformers is the correctness reference; used in tests/ and bench/ only.
+parity = ["transformers>=4.51", "accelerate>=1.0"]
+# Load generator + metrics (bench/harness). nvidia-ml-py provides `pynvml` for peak VRAM.
+bench = ["httpx>=0.27", "nvidia-ml-py>=12.0"]
+# Workload generation (bench/workloads): parquet sources + the Qwen tokenizer to count tokens.
+workloads = ["pyarrow>=15", "transformers>=4.51"]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/vinfer"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+extend-exclude = ["reference"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP", "SIM", "RUF", "TID251"]
+
+# Other serving engines are baselines only, never imported by the engine.
+[tool.ruff.lint.flake8-tidy-imports.banned-api]
+"vllm".msg = "vLLM is a baseline only; use it from bench/baselines/, not src/."
+"sglang".msg = "SGLang is a baseline only; use it from bench/baselines/, not src/."
+"text_generation_server".msg = "TGI is a baseline only."
+"llama_cpp".msg = "llama.cpp is a baseline only."
+
+[tool.ruff.lint.per-file-ignores]
+"bench/**" = ["TID251"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+addopts = "-ra --strict-markers"
+markers = [
+    "gpu: needs a CUDA GPU and/or real model weights (skipped automatically without CUDA)",
+    "slow: takes more than a few seconds",
+]

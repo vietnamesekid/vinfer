@@ -1,0 +1,65 @@
+{
+  "id": "W3-v1",
+  "spec": {
+    "id": "W3-v1",
+    "kind": "code",
+    "sources": [
+      "humaneval",
+      "mbpp"
+    ],
+    "num_requests": 400,
+    "seed": 0,
+    "prompt_tokens": [
+      4,
+      1024
+    ],
+    "output_tokens": [
+      1024,
+      2048
+    ],
+    "doc_tokens": [],
+    "turns": [
+      3,
+      6
+    ],
+    "notes": "HumanEval and MBPP (sanitized test) task prompts as code requests; output length uniform in output_tokens.",
+    "extra": {}
+  },
+  "sources": {
+    "humaneval": {
+      "repo": "openai/openai_humaneval",
+      "revision": "7dce6050a7d6d172f3cc5c32aa97f52fa1a2e544",
+      "file": "openai_humaneval/test-00000-of-00001.parquet",
+      "license": "mit"
+    },
+    "mbpp": {
+      "repo": "google-research-datasets/mbpp",
+      "revision": "4bb6404fdc6cacfda99d4ac4205087b89d32030c",
+      "file": "sanitized/test-00000-of-00001.parquet",
+      "license": "cc-by-4.0"
+    }
+  },
+  "tokenizer": {
+    "repo": "Qwen/Qwen3.5-2B",
+    "revision": "15852e8c16360a2fea060d615a32b45270f8a8fc"
+  },
+  "num_requests": 400,
+  "num_sessions": null,
+  "prompt_tokens": {
+    "min": 38,
+    "p50": 51.0,
+    "mean": 96.2575,
+    "p99": 337.01,
+    "max": 441,
+    "sum": 38503
+  },
+  "output_tokens": {
+    "min": 1029,
+    "p50": 1578.5,
+    "mean": 1548.0325,
+    "p99": 2040.03,
+    "max": 2047,
+    "sum": 619213
+  },
+  "sha256": "c9c5a4c3b42c05be31ec469feaec048c1fda4e96be7cb4a48ec67bf0499ce151"
+}

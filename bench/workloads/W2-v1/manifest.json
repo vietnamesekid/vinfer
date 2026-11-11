@@ -1,0 +1,63 @@
+{
+  "id": "W2-v1",
+  "spec": {
+    "id": "W2-v1",
+    "kind": "long_doc",
+    "sources": [
+      "longbench_v2"
+    ],
+    "num_requests": 200,
+    "seed": 0,
+    "prompt_tokens": [
+      4,
+      1024
+    ],
+    "output_tokens": [
+      64,
+      256
+    ],
+    "doc_tokens": [
+      4096,
+      8192,
+      16384,
+      32768
+    ],
+    "turns": [
+      3,
+      6
+    ],
+    "notes": "LongBench-v2 context truncated (head kept) to a length drawn uniformly from doc_tokens, followed by its question; output length uniform in output_tokens.",
+    "extra": {}
+  },
+  "sources": {
+    "longbench_v2": {
+      "repo": "zai-org/LongBench-v2",
+      "revision": "2b48e494f2c7a2f0af81aae178e05c7e1dde0fe9",
+      "file": "data.json",
+      "license": "apache-2.0"
+    }
+  },
+  "tokenizer": {
+    "repo": "Qwen/Qwen3.5-2B",
+    "revision": "15852e8c16360a2fea060d615a32b45270f8a8fc"
+  },
+  "num_requests": 200,
+  "num_sessions": null,
+  "prompt_tokens": {
+    "min": 4160,
+    "p50": 8596.5,
+    "mean": 13904.835,
+    "p99": 33123.88,
+    "max": 33259,
+    "sum": 2780967
+  },
+  "output_tokens": {
+    "min": 65,
+    "p50": 162.0,
+    "mean": 161.375,
+    "p99": 254.0,
+    "max": 255,
+    "sum": 32275
+  },
+  "sha256": "2185db49692e585b196ed0cdfd4d7db1a068b892ca06fb54f1e811944a3ad9ee"
+}

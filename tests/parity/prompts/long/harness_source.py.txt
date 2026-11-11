@@ -1,0 +1,944 @@
+# ===== bench/harness/http_client.py =====
+"""Send one streaming chat-completions request and time every output chunk.
+
+Timing follows ``async_request_openai_chat_completions`` in
+``vllm/benchmarks/lib/endpoint_request_func.py`` (vLLM v0.33.0), so our numbers can be compared
+with ``vllm bench serve`` (see ``validation.py``):
+
+- ``start_time``: just before the HTTP request is sent, i.e. after any client-side queueing.
+- ``ttft``: first chunk carrying output - ``start_time``.
+- ``itl``: gaps between consecutive output chunks.
+- ``latency``: last output chunk - ``start_time`` (the trailing usage chunk does not count).
+- ``output_tokens``: from the server's ``usage`` (``stream_options.include_usage``).
+"""
+
+from __future__ import annotations
+
+import json
+import time
+import traceback
+from dataclasses import asdict, dataclass, field
+from typing import Any
+
+import httpx
+
+from bench.harness.workload import Request
+
+
+@dataclass
+class RequestTiming:
+    """What one request measured. Times are in seconds."""
+
+    request_id: str
+    success: bool = False
+    error: str = ""
+    arrival_time: float = 0.0  # when the load generator released it, from the run start
+    start_time: float = 0.0  # when it was sent, from the run start
+    queue_time: float = 0.0  # start_time - arrival_time: waiting in the client
+    ttft: float = 0.0
+    itl: list[float] = field(default_factory=list)
+    latency: float = 0.0
+    output_tokens: int = 0
+    prompt_tokens: int = 0
+    cached_prompt_tokens: int | None = None  # if the server reports prefix-cache hits
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+
+def build_payload(
+    model: str, request: Request, extra_body: dict[str, Any] | None = None
+) -> dict[str, Any]:
+    """The request body: exactly ``max_tokens`` greedy output tokens (``ignore_eos``), with
+    usage reported at the end of the stream."""
+    body = {
+        "model": model,
+        "messages": request.messages,
+        "max_tokens": request.max_tokens,
+        "max_completion_tokens": request.max_tokens,
+        "temperature": 0.0,
+        "ignore_eos": True,
+        "stream": True,
+        "stream_options": {"include_usage": True},
+    }
+    return {**body, **(extra_body or {})}
+
+
+def _is_output(choice: dict[str, Any]) -> bool:
+    """True if a streamed choice carries output (text, reasoning or a tool call).
+
+    The opening chunk that only announces the ``role`` is not output.
+    """
+    delta = choice.get("delta") or {}
+    if delta.get("content") or delta.get("reasoning_content") or delta.get("reasoning"):
+        return True
+    if delta.get("tool_calls") or delta.get("function_call"):
+        return True
+    # A token can decode to "" (e.g. a skipped special token); it still counts.
+    return delta.get("content") == "" and "role" not in delta
+
+
+def _parse_event(line: str) -> dict[str, Any] | None:
+    """The JSON of a server-sent-events ``data:`` line; None for other lines and ``[DONE]``."""
+    line = line.strip()
+    if not line.startswith("data:"):
+        return None
+    data = line.removeprefix("data:").strip()
+    return None if data == "[DONE]" else json.loads(data)
+
+
+async def stream_chat_completion(
+    client: httpx.AsyncClient,
+    url: str,
+    model: str,
+    request: Request,
+    extra_body: dict[str, Any] | None = None,
+) -> RequestTiming:
+    """Send ``request`` to ``url`` and time it. Never raises: failures are recorded.
+
+    A request succeeds only if the stream carried output, reported its usage, had no error
+    event, and produced exactly ``request.max_tokens`` tokens. Anything else (a truncated
+    output, an in-stream error) would distort the metrics, so it counts as failed.
+    """
+    timing = RequestTiming(request_id=request.id, prompt_tokens=request.prompt_tokens or 0)
+    start = last_output = time.perf_counter()
+    timing.start_time = start
+    got_output = False
+    try:
+        payload = build_payload(model, request, extra_body)
+        async with client.stream("POST", url, json=payload) as response:
+            if response.status_code != 200:
+                body = await response.aread()
+                timing.error = f"HTTP {response.status_code}: {body[:500]!r}"
+                return timing
+            async for line in response.aiter_lines():
+                event = _parse_event(line)
+                if event is None:
+                    continue
+                now = time.perf_counter()
+                if "error" in event:  # vLLM / SGLang report mid-stream failures this way
+                    timing.error = f"error event: {json.dumps(event['error'])[:500]}"
+                    return timing
+                choices = event.get("choices") or []
+                if choices and _is_output(choices[0]):
+                    if got_output:
+                        timing.itl.append(now - last_output)
+                    else:
+                        got_output = True
+                        timing.ttft = now - start
+                    last_output = now
+                if usage := event.get("usage"):
+                    _read_usage(timing, usage)
+    except Exception:
+        timing.error = traceback.format_exc(limit=3)
+        return timing
+
+    timing.latency = last_output - start
+    if not got_output:
+        timing.error = "no output chunk received"
+    elif timing.output_tokens == 0:
+        timing.error = "no usage chunk: output length cannot be checked"
+    elif timing.output_tokens != request.max_tokens:
+        timing.error = f"output has {timing.output_tokens} tokens, expected {request.max_tokens}"
+    else:
+        timing.success = True
+    return timing
+
+
+def _read_usage(timing: RequestTiming, usage: dict[str, Any]) -> None:
+    timing.output_tokens = int(usage.get("completion_tokens") or 0)
+    if (prompt := usage.get("prompt_tokens")) is not None:
+        timing.prompt_tokens = int(prompt)
+    details = usage.get("prompt_tokens_details") or {}
+    if (cached := details.get("cached_tokens")) is not None:
+        timing.cached_prompt_tokens = int(cached)
+# ===== bench/harness/load_generator.py =====
+"""Send many requests to a server: Poisson arrivals, a concurrency cap, in-order sessions.
+
+The arrival process mirrors ``get_request`` in ``vllm/benchmarks/serve.py`` (vLLM v0.33.0) with
+burstiness 1: exponential gaps at ``request_rate``, rescaled so the last arrival lands exactly at
+``n / request_rate`` (vLLM does this to keep throughput stable across seeds). With
+``request_rate = inf`` every request is released at t=0 and only the concurrency cap shapes the
+load. The cap is a semaphore around the HTTP call, as in vLLM.
+
+Sessions (W4): a turn is sent only after the previous turn of its session finished, so the
+server has seen that prefix. Waiting for the previous turn counts as queue time, not TTFT.
+"""
+
+from __future__ import annotations
+
+import asyncio
+import math
+import time
+from collections.abc import Sequence
+from typing import Any
+
+import httpx
+import numpy as np
+
+from bench.harness.http_client import RequestTiming, stream_chat_completion
+from bench.harness.workload import Request
+
+
+def arrival_times(n: int, request_rate: float, seed: int) -> list[float]:
+    """Seconds after the start at which each of ``n`` requests is released."""
+    if n == 0:
+        return []
+    if math.isinf(request_rate):
+        return [0.0] * n
+    if request_rate <= 0:
+        raise ValueError(f"request_rate must be > 0, got {request_rate}")
+    gaps = np.random.default_rng(seed).exponential(scale=1.0 / request_rate, size=n)
+    times = np.cumsum(gaps)
+    times *= (n / request_rate) / times[-1]
+    return times.tolist()
+
+
+async def send_requests(
+    base_url: str,
+    model: str,
+    requests: Sequence[Request],
+    *,
+    max_concurrency: int,
+    request_rate: float = math.inf,
+    seed: int = 0,
+    extra_body: dict[str, Any] | None = None,
+    timeout_s: float = 3600.0,
+) -> tuple[list[RequestTiming], float]:
+    """Send ``requests``; return their timings (in request order) and the run's wall time."""
+    url = base_url.rstrip("/") + "/v1/chat/completions"
+    arrivals = arrival_times(len(requests), request_rate, seed)
+    slots = asyncio.Semaphore(max_concurrency)
+    # One event per session turn, set when that turn finishes.
+    turn_done = {(r.session_id, r.turn): asyncio.Event() for r in requests if r.session_id}
+
+    limits = httpx.Limits(max_connections=max_concurrency + 8, max_keepalive_connections=None)
+    async with httpx.AsyncClient(timeout=httpx.Timeout(timeout_s), limits=limits) as client:
+        run_start = time.perf_counter()
+
+        async def send(request: Request, arrival: float) -> RequestTiming:
+            await asyncio.sleep(max(0.0, run_start + arrival - time.perf_counter()))
+            previous_turn = turn_done.get((request.session_id, request.turn - 1))
+            if previous_turn is not None:
+                await previous_turn.wait()
+            try:
+                async with slots:
+                    timing = await stream_chat_completion(client, url, model, request, extra_body)
+            finally:
+                if request.session_id:
+                    turn_done[(request.session_id, request.turn)].set()
+            timing.arrival_time = arrival
+            timing.start_time -= run_start
+            timing.queue_time = timing.start_time - arrival
+            return timing
+
+        timings = await asyncio.gather(*map(send, requests, arrivals))
+        wall_time = time.perf_counter() - run_start
+    return list(timings), wall_time
+# ===== bench/harness/metrics.py =====
+"""Metrics of one run, defined like ``calculate_metrics`` in
+``vllm/benchmarks/serve.py`` (vLLM v0.33.0):
+
+- TPOT of a request = (latency - TTFT) / (output tokens - 1), for requests with > 1 output
+  token. For goodput, a request with <= 1 output token has TPOT 0.
+- Throughput = output tokens of successful requests / wall time of the run.
+- Goodput = successful requests meeting every given SLO / wall time; None without an SLO.
+- Prefix cache hit rate = cached prompt tokens / prompt tokens. None if no request reported
+  cached tokens (the server does not report them); a request without the field counts as 0.
+
+The result is a plain dict because it goes straight into the result JSON
+(``bench/results/SCHEMA.md``). Times are in milliseconds.
+"""
+
+from __future__ import annotations
+
+from collections.abc import Sequence
+from typing import Any
+
+import numpy as np
+
+from bench.harness.http_client import RequestTiming
+
+MS = 1000.0
+NAN = float("nan")
+
+
+def _stats_ms(seconds: Sequence[float], *stats: str) -> dict[str, float]:
+    """``{"mean": ..., "p50": ...}`` in milliseconds; NaN when there are no samples."""
+    if not seconds:
+        return dict.fromkeys(stats, NAN)
+    arr = np.asarray(seconds) * MS
+    return {s: float(arr.mean() if s == "mean" else np.percentile(arr, int(s[1:]))) for s in stats}
+
+
+def _tpot(t: RequestTiming) -> float:
+    return (t.latency - t.ttft) / (t.output_tokens - 1) if t.output_tokens > 1 else 0.0
+
+
+def _goodput(
+    ok: list[RequestTiming], wall_time: float, ttft_ms: float | None, tpot_ms: float | None
+) -> float | None:
+    if ttft_ms is None and tpot_ms is None:
+        return None
+    good = [
+        t
+        for t in ok
+        if (ttft_ms is None or t.ttft * MS <= ttft_ms)
+        and (tpot_ms is None or _tpot(t) * MS <= tpot_ms)
+    ]
+    return len(good) / wall_time
+
+
+def run_metrics(
+    timings: Sequence[RequestTiming],
+    wall_time: float,
+    slo_ttft_ms: float | None = None,
+    slo_tpot_ms: float | None = None,
+) -> dict[str, Any]:
+    ok = [t for t in timings if t.success]
+    ttfts = [t.ttft for t in ok]
+    tpots = [_tpot(t) for t in ok if t.output_tokens > 1]
+    itls = [gap for t in ok for gap in t.itl]
+    latencies = [t.latency for t in ok]
+    queue = [t.queue_time for t in ok]
+    prompt_tokens = sum(t.prompt_tokens for t in ok)
+
+    hit_rate = None
+    if prompt_tokens and any(t.cached_prompt_tokens is not None for t in ok):
+        hit_rate = sum(t.cached_prompt_tokens or 0 for t in ok) / prompt_tokens
+
+    return {
+        "ttft_ms": _stats_ms(ttfts, "p50", "p95", "p99"),
+        "tpot_ms": _stats_ms(tpots, "mean", "p50", "p99"),
+        "itl_ms": _stats_ms(itls, "mean", "p50", "p99"),
+        "e2el_ms": _stats_ms(latencies, "p50", "p99"),
+        "queue_ms": _stats_ms(queue, "p50", "p99"),
+        "output_tokens_per_s": sum(t.output_tokens for t in ok) / wall_time,
+        "input_tokens_per_s": prompt_tokens / wall_time,
+        "request_per_s": len(ok) / wall_time,
+        "goodput_req_per_s": _goodput(ok, wall_time, slo_ttft_ms, slo_tpot_ms),
+        "peak_vram_gb": None,  # filled in by the caller from gpu_memory
+        "prefix_cache_hit_rate": hit_rate,
+        "completed": len(ok),
+        "failed": len(timings) - len(ok),
+        "duration_s": wall_time,
+    }
+# ===== bench/harness/engines.py =====
+"""The engines we can measure, and starting / stopping their servers.
+
+Three kinds of server:
+
+- baselines (``vllm``, ``sglang``): started from
+  ``bench/baselines/<engine>/configs/<config>.sh``
+  in the engine's own venv, stopped when the measurement ends;
+- servers someone else started (``vinfer``, ``external``): reached through ``base_url``;
+- ``fake``: the in-process fake server, for CPU tests.
+
+Adding an engine: add an ``EngineSpec`` to ``ENGINES`` and, if we launch it, a directory
+``bench/baselines/<engine>/`` with ``configs/<config>.sh`` and ``version.sh``.
+"""
+
+from __future__ import annotations
+
+import asyncio
+import contextlib
+import hashlib
+import os
+import signal
+import socket
+import subprocess
+import time
+from collections.abc import AsyncGenerator
+from dataclasses import dataclass, field
+from pathlib import Path
+from typing import Any
+
+import httpx
+
+from bench.harness.config import BASELINES_DIR, REPO, HarnessError, ServerConfig
+from bench.harness.environment import git_state
+from bench.harness.fake_server import FakeServer
+
+
+@dataclass(frozen=True)
+class EngineSpec:
+    launched: bool  # True: we start it from bench/baselines/<engine>/configs/<config>.sh
+    # POST endpoint that empties the prefix cache. Called before every measured run so that
+    # no run starts with a warm cache. None: the engine has no cross-request cache to reset.
+    cache_reset_endpoint: str | None = None
+
+
+ENGINES: dict[str, EngineSpec] = {
+    # Needs VLLM_SERVER_DEV_MODE=1 (set in bench/baselines/vllm/*.sh).
+    "vllm": EngineSpec(launched=True, cache_reset_endpoint="/reset_prefix_cache"),
+    # timeout: wait up to 60 s for running requests to drain instead of refusing at once.
+    "sglang": EngineSpec(launched=True, cache_reset_endpoint="/flush_cache?timeout=60"),
+    "vinfer": EngineSpec(launched=False),
+    "external": EngineSpec(launched=False),
+    "fake": EngineSpec(launched=False, cache_reset_endpoint="/reset_prefix_cache"),
+}
+
+
+@dataclass
+class RunningServer:
+    base_url: str
+    spec: EngineSpec
+    version: str  # engine version, recorded in results
+    launch: dict[str, Any] = field(default_factory=dict)  # how it was started, for the record
+
+
+@contextlib.asynccontextmanager
+async def start_server(cfg: ServerConfig, log_path: Path) -> AsyncGenerator[RunningServer, None]:
+    """Start (or reach) the server described by ``cfg``; stop it on exit if we started it."""
+    spec = ENGINES[cfg.engine]
+    if cfg.engine == "fake":
+        fake = FakeServer()
+        port = await fake.start()
+        launch = {"config": cfg.config, "prefill_s": fake.prefill_s, "decode_s": fake.decode_s}
+        try:
+            yield RunningServer(f"http://127.0.0.1:{port}", spec, "fake", launch)
+        finally:
+            await fake.stop()
+    elif spec.launched:
+        async with _launch_baseline(cfg, spec, log_path) as server:
+            yield server
+    else:
+        if not cfg.base_url:
+            raise HarnessError(f"--base-url is required for engine {cfg.engine}")
+        base_url = cfg.base_url.rstrip("/")
+        await _wait_until_healthy(base_url, None, cfg.startup_timeout_s)
+        version = (git_state().commit or "unknown") if cfg.engine == "vinfer" else cfg.engine
+        yield RunningServer(base_url, spec, version, {"config": cfg.config})
+
+
+async def reset_prefix_cache(
+    server: RunningServer, attempts: int = 10, retry_delay_s: float = 3.0
+) -> None:
+    """Empty the server's prefix cache, retrying while the engine refuses (e.g. right after a
+    run, while requests are still finishing).
+
+    Success means HTTP 200 *and* no ``"success": false`` in a JSON body: vLLM answers 200 with
+    ``{"success": false}`` when it could not reset (vllm/entrypoints/serve/dev/cache/
+    api_router.py), SGLang answers 400.
+    """
+    endpoint = server.spec.cache_reset_endpoint
+    if endpoint is None:
+        return
+    detail = ""
+    async with httpx.AsyncClient(timeout=120) as client:
+        for _ in range(attempts):
+            try:
+                response = await client.post(server.base_url + endpoint)
+            except httpx.HTTPError as e:  # busy or restarting server: retry like a refusal
+                detail = f"{type(e).__name__}: {e}"
+            else:
+                if response.status_code == 200 and _reset_succeeded(response):
+                    return
+                detail = f"HTTP {response.status_code} {response.text[:200]}"
+            await asyncio.sleep(retry_delay_s)
+    raise HarnessError(f"cache reset {endpoint} failed {attempts} times: {detail}")
+
+
+def _reset_succeeded(response: httpx.Response) -> bool:
+    try:
+        body = response.json()
+    except ValueError:
+        return True  # plain-text bodies (SGLang) carry no success flag
+    return not (isinstance(body, dict) and body.get("success") is False)
+
+
+# ----------------------------------------------------------------------------- baselines
+
+
+@contextlib.asynccontextmanager
+async def _launch_baseline(
+    cfg: ServerConfig, spec: EngineSpec, log_path: Path
+) -> AsyncGenerator[RunningServer, None]:
+    script = BASELINES_DIR / cfg.engine / "configs" / f"{cfg.config}.sh"
+    if not script.exists():
+        raise HarnessError(f"no launch script {script}")
+    _check_port_free(cfg.port)
+    script_env = dict(
+        os.environ,
+        VINFER_MODEL=cfg.model,
+        VINFER_PORT=str(cfg.port),
+        VINFER_MODEL_REVISION=cfg.revision or "",
+    )
+    # Record every script that shapes the server: the config and the engine's harness settings.
+    harness = BASELINES_DIR / cfg.engine / "harness.sh"
+    text = script.read_text()
+    harness_text = harness.read_text() if harness.exists() else ""
+    launch = {
+        "config": cfg.config,
+        "launch_script": str(script.relative_to(REPO)),
+        "launch_script_sha256": hashlib.sha256((text + harness_text).encode()).hexdigest(),
+        "launch_script_text": text,
+        "harness_script_text": harness_text,
+    }
+    version = _engine_version(cfg.engine, script_env)
+    base_url = f"http://127.0.0.1:{cfg.port}"
+    log_path.parent.mkdir(parents=True, exist_ok=True)
+    with log_path.open("w") as log:
+        process = subprocess.Popen(
+            ["bash", str(script)],
+            env=script_env,
+            stdout=log,
+            stderr=subprocess.STDOUT,
+            start_new_session=True,  # own process group, so we can stop all its children
+        )
+        try:
+            await _wait_until_healthy(base_url, process, cfg.startup_timeout_s)
+            yield RunningServer(base_url, spec, version, launch)
+        finally:
+            _stop(process)
+
+
+def _engine_version(engine: str, script_env: dict[str, str]) -> str:
+    script = BASELINES_DIR / engine / "version.sh"
+    result = subprocess.run(["bash", str(script)], env=script_env, capture_output=True, text=True)
+    return result.stdout.strip() or "unknown"
+
+
+def _check_port_free(port: int) -> None:
+    with socket.socket() as s:
+        if s.connect_ex(("127.0.0.1", port)) == 0:
+            raise HarnessError(f"port {port} is already in use: stop the old server first")
+
+
+async def _wait_until_healthy(
+    base_url: str, process: subprocess.Popen | None, timeout_s: float
+) -> None:
+    loop = asyncio.get_running_loop()
+    deadline = loop.time() + timeout_s
+    async with httpx.AsyncClient(timeout=5) as client:
+        while loop.time() < deadline:
+            if process is not None and process.poll() is not None:
+                raise HarnessError(f"server exited with code {process.returncode} at startup")
+            with contextlib.suppress(httpx.HTTPError):
+                if (await client.get(base_url + "/health")).status_code == 200:
+                    return
+            await asyncio.sleep(2)
+    raise HarnessError(f"server at {base_url} not healthy after {timeout_s:.0f}s")
+
+
+def _stop(process: subprocess.Popen, timeout_s: float = 120.0) -> None:
+    """Stop the server and every child it spawned (engine cores, schedulers, ...), and return
+    only once they are all gone, so the next server finds the port and GPU memory free."""
+    _signal_group(process, signal.SIGTERM)
+    if not _wait_group_exit(process, timeout_s):
+        _signal_group(process, signal.SIGKILL)
+        _wait_group_exit(process, 30)
+
+
+def _signal_group(process: subprocess.Popen, sig: int) -> None:
+    # ProcessLookupError: already gone. PermissionError: only zombies left (macOS).
+    with contextlib.suppress(ProcessLookupError, PermissionError):
+        os.killpg(process.pid, sig)
+
+
+def _wait_group_exit(process: subprocess.Popen, timeout_s: float) -> bool:
+    """True once no process of the group is left (the leader is also reaped)."""
+    deadline = time.monotonic() + timeout_s
+    while time.monotonic() < deadline:
+        process.poll()  # reap the leader so it does not linger as a zombie
+        try:
+            os.killpg(process.pid, 0)  # raises ProcessLookupError once the group is empty
+        except ProcessLookupError:
+            return True
+        except PermissionError:
+            pass  # macOS: members are exiting zombies, not yet reaped; keep waiting
+        time.sleep(0.2)
+    return False
+# ===== bench/harness/benchmark.py =====
+"""The ``run`` command: measure one server on one or more workloads over a concurrency sweep.
+
+The server is started once for all workloads (model loading and graph capture are paid once);
+the prefix cache is reset before every measured run, so workloads do not see each other.
+
+For each concurrency level: warm up at that concurrency (see ``warmup_set``), then for each
+run reset the prefix cache and send the workload. Each level becomes one result
+file (``result_file.py``); per-request timings go to ``<out_dir>/raw/<run id>/``.
+"""
+
+from __future__ import annotations
+
+import dataclasses
+import datetime as dt
+import json
+import math
+import os
+from pathlib import Path
+from typing import Any
+
+from bench.harness import environment, result_file
+from bench.harness.config import REPO, BenchmarkConfig, HarnessError
+from bench.harness.engines import RunningServer, reset_prefix_cache, start_server
+from bench.harness.gpu_memory import PeakGpuMemory
+from bench.harness.load_generator import send_requests
+from bench.harness.metrics import run_metrics
+from bench.harness.workload import (
+    Request,
+    load_workload,
+    requests_per_run,
+    select_requests,
+    warmup_requests,
+)
+
+
+async def run_benchmark(cfg: BenchmarkConfig) -> list[Path]:
+    """Measure every concurrency level of ``cfg``; return the result files written."""
+    git = environment.git_state()
+    if git.dirty and not cfg.allow_dirty:
+        raise HarnessError("git tree is dirty: commit first, or pass --allow-dirty (unofficial)")
+    # Load every workload before starting the server: a missing file fails in seconds.
+    if cfg.workload_file is not None:
+        workloads = [load_workload(path=cfg.workload_file)]
+    else:
+        workloads = [load_workload(name) for name in cfg.workloads]
+    stamp = dt.datetime.now().strftime("%Y-%m-%dT%H%M%S.%f")[:-3]
+    run_dir = cfg.out_dir / "raw" / f"{stamp}_{cfg.server.engine}-{cfg.server.config}"
+    run_dir.mkdir(parents=True, exist_ok=True)
+
+    written = []
+    async with start_server(cfg.server, run_dir / "server.log") as server:
+        for workload, all_requests in workloads:
+            raw_dir = run_dir / workload
+            raw_dir.mkdir(exist_ok=True)
+            for concurrency in cfg.concurrency:
+                requests = select_requests(
+                    all_requests, requests_per_run(cfg.num_requests, concurrency)
+                )
+                per_run = await measure_level(cfg, server, requests, concurrency, raw_dir)
+                result = build_result(cfg, server, workload, requests, concurrency, per_run, git)
+                result["raw_dir"] = os.path.relpath(raw_dir, REPO)
+                path = result_file.write(result, cfg.out_dir, stamp)
+                problems = result["problems"]
+                note = f" (unofficial: {'; '.join(problems)})" if problems else ""
+                print(f"wrote {path}{note}", flush=True)
+                written.append(path)
+    return written
+
+
+async def measure_level(
+    cfg: BenchmarkConfig,
+    server: RunningServer,
+    requests: list[Request],
+    concurrency: int,
+    raw_dir: Path,
+) -> list[dict[str, Any]]:
+    """Warm up, then ``cfg.runs`` measured runs; returns the metrics of each run."""
+    send_options = {"extra_body": cfg.extra_body}
+    if cfg.warmup:
+        warmup = warmup_set(cfg.warmup, server, requests, concurrency)
+        await send_requests(
+            server.base_url, cfg.server.model, warmup, max_concurrency=concurrency, **send_options
+        )
+
+    per_run = []
+    for run in range(cfg.runs):
+        await reset_prefix_cache(server)
+        with PeakGpuMemory() as gpu:
+            timings, wall_time = await send_requests(
+                server.base_url,
+                cfg.server.model,
+                requests,
+                max_concurrency=concurrency,
+                request_rate=cfg.request_rate,
+                seed=cfg.seed + run,
+                **send_options,
+            )
+        metrics = run_metrics(timings, wall_time, cfg.slo_ttft_ms, cfg.slo_tpot_ms)
+        metrics["peak_vram_gb"] = gpu.peak_gb
+        per_run.append(metrics)
+        lines = "".join(json.dumps(t.to_dict()) + "\n" for t in timings)
+        (raw_dir / f"c{concurrency}_run{run}.jsonl").write_text(lines)
+        print(
+            f"[{cfg.server.engine}-{cfg.server.config} c={concurrency} run {run + 1}/{cfg.runs}]"
+            f" ttft_p50={metrics['ttft_ms']['p50']:.1f}ms"
+            f" tpot_mean={metrics['tpot_ms']['mean']:.2f}ms"
+            f" out_tok/s={metrics['output_tokens_per_s']:.1f} failed={metrics['failed']}",
+            flush=True,
+        )
+    return per_run
+
+
+def warmup_set(
+    minimum: int, server: RunningServer, requests: list[Request], concurrency: int
+) -> list[Request]:
+    """Requests that warm the server up at the shapes about to be measured.
+
+    At least one per concurrency slot, so the first measured run does not pay for kernel
+    compilation or graph capture at that batch size. If the engine's prefix cache is reset
+    before every run, the warmup reuses the workload's own requests (same prompt lengths),
+    sent as independent requests; otherwise synthetic ones, which share no prefix with it.
+    """
+    n = max(minimum, concurrency)
+    if server.spec.cache_reset_endpoint is None:
+        return warmup_requests(n)
+    pool = requests[:n]
+    return [dataclasses.replace(r, id=f"warmup-{r.id}", session_id=None) for r in pool]
+
+
+def build_result(
+    cfg: BenchmarkConfig,
+    server: RunningServer,
+    workload: str,
+    requests: list[Request],
+    concurrency: int,
+    per_run: list[dict[str, Any]],
+    git: environment.GitState,
+) -> dict[str, Any]:
+    """The result dict of one concurrency level (``bench/results/SCHEMA.md``)."""
+    mean, stddev = result_file.aggregate_runs(per_run)
+    poisson = math.isfinite(cfg.request_rate)
+    result = {
+        "engine": cfg.server.engine,
+        "engine_version": server.version,
+        "engine_config": {
+            **server.launch,
+            "extra_body": cfg.extra_body,
+            "cache_reset_between_runs": server.spec.cache_reset_endpoint,
+        },
+        "vinfer_commit": git.commit,
+        "dirty": git.dirty,
+        "model": cfg.server.model,
+        "model_revision": cfg.server.revision,
+        "workload": workload,
+        "concurrency": concurrency,
+        "arrival": "poisson" if poisson else "closed-loop",
+        "request_rate": cfg.request_rate if poisson else None,
+        "seed": cfg.seed,
+        "runs": cfg.runs,
+        "num_requests": len(requests),
+        "num_requests_rule": cfg.num_requests,  # "auto", a fixed int, or None (all)
+        "warmup": cfg.warmup,
+        "command": cfg.command,
+        "hardware": environment.hardware(),
+        "software": environment.software(),
+        "slo": {"ttft_ms": cfg.slo_ttft_ms, "tpot_ms": cfg.slo_tpot_ms},
+        "metrics": mean,
+        "stddev": stddev,
+        "per_run": per_run,
+        "timestamp": dt.datetime.now(dt.UTC).isoformat(),
+    }
+    problems = result_file.validate(result)
+    if cfg.server.engine in ("fake", "external"):
+        problems.append(f"engine {cfg.server.engine} is not an official benchmark target")
+    result["problems"] = problems
+    return result
+# ===== bench/harness/validation.py =====
+"""The ``validate`` command: compare our harness with engines' own benchmark tools.
+
+For each engine benchmark: start that engine's baseline server, then at each concurrency warm
+up, and alternate runs of their tool and ours (who goes first alternates too) with a cache
+reset before each run, so machine drift and first-run costs hit both sides equally. Both
+sides send the same prompts (single-turn requests of a workload) with the same fixed output
+length, ``ignore_eos``, a closed loop, and the same concurrency cap.
+
+The output is mean ± stddev per metric and the relative difference. The acceptable tolerance
+is a human decision recorded in ``docs/benchmarking.md``; this command only measures.
+"""
+
+from __future__ import annotations
+
+import asyncio
+import dataclasses
+import json
+import subprocess
+from collections.abc import Callable
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Any
+
+from bench.harness import environment
+from bench.harness.config import RESULTS_DIR, HarnessError, ServerConfig
+from bench.harness.engine_benchmarks import (
+    ENGINE_BENCHMARKS,
+    FLAT_KEYS,
+    EngineBenchmark,
+    EngineBenchmarkRun,
+)
+from bench.harness.engines import RunningServer, reset_prefix_cache, start_server
+from bench.harness.load_generator import send_requests
+from bench.harness.metrics import run_metrics
+from bench.harness.result_file import aggregate_runs
+from bench.harness.workload import Request, load_workload
+
+
+@dataclass(frozen=True)
+class ValidationConfig:
+    model: str
+    revision: str | None = None
+    benchmarks: tuple[str, ...] = tuple(ENGINE_BENCHMARKS)
+    server_config: str = "default"  # baseline config the servers run
+    workload: str = "W1-v1"
+    num_requests: int = 200
+    output_len: int = 256
+    concurrency: tuple[int, ...] = (1, 8, 32)
+    runs: int = 3
+    port: int = 8000
+    startup_timeout_s: float = 1800.0
+    out: Path = RESULTS_DIR / "raw" / "p06-validation.json"
+
+
+def validation_requests(workload: str, n: int, output_len: int) -> list[Request]:
+    """The first ``n`` single-turn requests of ``workload``, all with ``output_len`` tokens.
+
+    Single-turn only, and one fixed output length, because not every benchmark tool supports
+    multi-turn requests or a per-request output length.
+    """
+    _, requests = load_workload(workload)
+    single = [r for r in requests if r.is_single_turn]
+    if len(single) < n:
+        raise HarnessError(f"{workload} has only {len(single)} single-turn requests, need {n}")
+    return [dataclasses.replace(r, max_tokens=output_len) for r in single[:n]]
+
+
+def compare(ours: list[dict], theirs: list[dict]) -> dict[str, dict[str, float | None]]:
+    """Per metric: mean and stddev of both sides, and the relative difference ours vs theirs."""
+    ours_mean, ours_std = aggregate_runs(ours)
+    theirs_mean, theirs_std = aggregate_runs(theirs)
+
+    def get(metrics: dict[str, Any], section: str, key: str | None) -> float:
+        return metrics[section] if key is None else metrics[section][key]
+
+    rows = {}
+    for section, key in FLAT_KEYS.values():
+        o, t = get(ours_mean, section, key), get(theirs_mean, section, key)
+        rows[f"{section}.{key}" if key else section] = {
+            "ours": o,
+            "ours_std": get(ours_std, section, key),
+            "theirs": t,
+            "theirs_std": get(theirs_std, section, key),
+            "rel_diff": (o - t) / t if t else None,
+        }
+    return rows
+
+
+async def validate_harness(cfg: ValidationConfig) -> dict[str, Any]:
+    """Run every benchmark in ``cfg.benchmarks``. The report is rewritten to ``cfg.out`` after
+    every concurrency level, so a failure later on never loses finished levels. A benchmark
+    that fails is recorded with its error and the next one still runs; raises at the end if
+    any failed."""
+    requests = validation_requests(cfg.workload, cfg.num_requests, cfg.output_len)
+    work_dir = cfg.out.with_suffix("")
+    work_dir.mkdir(parents=True, exist_ok=True)
+    report: dict[str, Any] = {
+        "model": cfg.model,
+        "model_revision": cfg.revision,
+        "workload": cfg.workload,
+        "num_requests": len(requests),
+        "output_len": cfg.output_len,
+        "runs": cfg.runs,
+        "commit": environment.git_state().commit,
+        "hardware": environment.hardware(),
+        "benchmarks": {},
+    }
+
+    def save() -> None:
+        cfg.out.write_text(json.dumps(report, indent=2))
+
+    failed = []
+    for name in cfg.benchmarks:
+        entry: dict[str, Any] = {"server_config": cfg.server_config, "levels": {}}
+        report["benchmarks"][name] = entry
+        try:
+            await _validate_benchmark(cfg, ENGINE_BENCHMARKS[name], requests, work_dir, entry, save)
+        except HarnessError as e:
+            entry["error"] = str(e)
+            failed.append(name)
+            print(f"\n{name}: FAILED: {e}", flush=True)
+        save()
+    if failed:
+        raise HarnessError(f"validation failed for {', '.join(failed)} (details in {cfg.out})")
+    return report
+
+
+async def _validate_benchmark(
+    cfg: ValidationConfig,
+    benchmark: EngineBenchmark,
+    requests: list[Request],
+    work_dir: Path,
+    entry: dict[str, Any],
+    save: Callable[[], None],
+) -> None:
+    """Fill ``entry`` level by level, calling ``save`` after each one."""
+    dataset = work_dir / f"{benchmark.name}.dataset.jsonl"
+    benchmark.write_dataset([r.messages[0]["content"] for r in requests], dataset)
+    server_cfg = ServerConfig(
+        engine=benchmark.engine,
+        model=cfg.model,
+        config=cfg.server_config,
+        revision=cfg.revision,
+        port=cfg.port,
+        startup_timeout_s=cfg.startup_timeout_s,
+    )
+    async with start_server(server_cfg, work_dir / f"{benchmark.name}.server.log") as server:
+        entry["engine_version"] = server.version
+        for concurrency in cfg.concurrency:
+            # Warm up at this batch shape, so neither side pays first-run costs (compilation,
+            # graph capture, allocator growth) inside a measured run.
+            await _run_ours(server, cfg, requests[: max(4, concurrency)], concurrency)
+            ours, theirs = [], []
+            for run in range(cfg.runs):
+                benchmark_run = EngineBenchmarkRun(
+                    base_url=server.base_url,
+                    model=cfg.model,
+                    dataset=dataset,
+                    num_requests=len(requests),
+                    output_len=cfg.output_len,
+                    concurrency=concurrency,
+                    result=work_dir / f"{benchmark.name}.c{concurrency}.run{run}.json",
+                )
+                # Alternate who goes first, so drift within a level hits both sides equally.
+                for side in ("theirs", "ours") if run % 2 == 0 else ("ours", "theirs"):
+                    await reset_prefix_cache(server)
+                    if side == "theirs":
+                        theirs.append(await _run_benchmark(benchmark, benchmark_run))
+                    else:
+                        ours.append(await _run_ours(server, cfg, requests, concurrency))
+            entry["levels"][f"c{concurrency}"] = compare(ours, theirs)
+            save()
+            _print_level(benchmark.name, concurrency, entry["levels"][f"c{concurrency}"])
+
+
+async def _run_benchmark(benchmark: EngineBenchmark, run: EngineBenchmarkRun) -> dict[str, Any]:
+    """Run the engine's tool; its output goes to ``<result>.log``."""
+    run.result.unlink(missing_ok=True)  # SGLang appends to its result file
+    log_path = run.result.with_suffix(".log")
+    with log_path.open("w") as log:
+        process = await asyncio.to_thread(
+            subprocess.run, benchmark.command(run), stdout=log, stderr=subprocess.STDOUT
+        )
+    if process.returncode != 0 or not run.result.exists():
+        tail = "".join(log_path.read_text().splitlines(keepends=True)[-5:])
+        raise HarnessError(
+            f"{benchmark.name} benchmark exited with code {process.returncode}; see {log_path}\n"
+            f"{tail}"
+        )
+    return benchmark.read_result(run.result)
+
+
+async def _run_ours(
+    server: RunningServer, cfg: ValidationConfig, requests: list[Request], concurrency: int
+) -> dict[str, Any]:
+    timings, wall_time = await send_requests(
+        server.base_url,
+        cfg.model,
+        requests,
+        max_concurrency=concurrency,
+    )
+    return run_metrics(timings, wall_time)
+
+
+def _print_level(
+    benchmark: str, concurrency: int, rows: dict[str, dict[str, float | None]]
+) -> None:
+    print(f"\n{benchmark} @ concurrency {concurrency}")
+    for name, r in rows.items():
+        rel = "n/a" if r["rel_diff"] is None else f"{100 * r['rel_diff']:+.1f}%"
+        print(
+            f"  {name:20s} ours {r['ours']:10.2f} ± {r['ours_std']:<8.2f}"
+            f" {benchmark} {r['theirs']:10.2f} ± {r['theirs_std']:<8.2f} {rel}",
+            flush=True,
+        )

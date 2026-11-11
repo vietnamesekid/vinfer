@@ -1,0 +1,50 @@
+{"id": "short-en-0", "kind": "short", "messages": [{"role": "user", "content": "What is the capital of Australia?"}]}
+{"id": "short-en-1", "kind": "short", "messages": [{"role": "user", "content": "Explain photosynthesis in two sentences."}]}
+{"id": "short-en-2", "kind": "short", "messages": [{"role": "user", "content": "Give me three tips for writing clear emails."}]}
+{"id": "short-en-3", "kind": "short", "messages": [{"role": "user", "content": "What is 17 multiplied by 23?"}]}
+{"id": "short-en-4", "kind": "short", "messages": [{"role": "user", "content": "Summarize the plot of Romeo and Juliet in one paragraph."}]}
+{"id": "short-en-5", "kind": "short", "messages": [{"role": "user", "content": "Why is the sky blue?"}]}
+{"id": "short-en-6", "kind": "short", "messages": [{"role": "user", "content": "List the planets of the solar system in order."}]}
+{"id": "short-en-7", "kind": "short", "messages": [{"role": "user", "content": "Write a haiku about autumn rain."}]}
+{"id": "short-en-8", "kind": "short", "messages": [{"role": "user", "content": "What does HTTP status code 404 mean?"}]}
+{"id": "short-en-9", "kind": "short", "messages": [{"role": "user", "content": "Translate 'good morning' into French, Spanish and German."}]}
+{"id": "vi-0", "kind": "multilingual", "messages": [{"role": "user", "content": "Thủ đô của Việt Nam là gì?"}]}
+{"id": "vi-1", "kind": "multilingual", "messages": [{"role": "user", "content": "Giải thích ngắn gọn cơ chế attention trong mô hình transformer."}]}
+{"id": "vi-2", "kind": "multilingual", "messages": [{"role": "user", "content": "Viết một đoạn văn ngắn giới thiệu về phở Hà Nội."}]}
+{"id": "vi-3", "kind": "multilingual", "messages": [{"role": "user", "content": "Liệt kê năm con sông lớn nhất Việt Nam."}]}
+{"id": "vi-4", "kind": "multilingual", "messages": [{"role": "user", "content": "So sánh ưu và nhược điểm của làm việc từ xa."}]}
+{"id": "vi-5", "kind": "multilingual", "messages": [{"role": "user", "content": "Hãy giải thích KV cache là gì và vì sao nó giúp tăng tốc sinh văn bản."}]}
+{"id": "vi-6", "kind": "multilingual", "messages": [{"role": "user", "content": "Tóm tắt truyện Kiều của Nguyễn Du trong ba câu."}]}
+{"id": "vi-7", "kind": "multilingual", "messages": [{"role": "user", "content": "Viết email xin nghỉ phép hai ngày gửi quản lý."}]}
+{"id": "ml-0", "kind": "multilingual", "messages": [{"role": "user", "content": "请用三句话解释什么是机器学习。"}]}
+{"id": "ml-1", "kind": "multilingual", "messages": [{"role": "user", "content": "日本の四季について短く説明してください。"}]}
+{"id": "ml-2", "kind": "multilingual", "messages": [{"role": "user", "content": "Explique-moi la différence entre un virus et une bactérie."}]}
+{"id": "ml-3", "kind": "multilingual", "messages": [{"role": "user", "content": "Erkläre kurz, wie ein Kühlschrank funktioniert."}]}
+{"id": "ml-4", "kind": "multilingual", "messages": [{"role": "user", "content": "¿Cuáles son los beneficios de dormir bien?"}]}
+{"id": "ml-5", "kind": "multilingual", "messages": [{"role": "user", "content": "Расскажи кратко об истории Санкт-Петербурга."}]}
+{"id": "ml-6", "kind": "multilingual", "messages": [{"role": "user", "content": "ما هي فوائد القراءة اليومية؟"}]}
+{"id": "ml-7", "kind": "multilingual", "messages": [{"role": "user", "content": "한국의 전통 음식 세 가지를 소개해 주세요."}]}
+{"id": "code-0", "kind": "code", "messages": [{"role": "user", "content": "Write a Python function that returns the n-th Fibonacci number iteratively."}]}
+{"id": "code-1", "kind": "code", "messages": [{"role": "user", "content": "Implement binary search in C and explain its complexity."}]}
+{"id": "code-2", "kind": "code", "messages": [{"role": "user", "content": "Write a SQL query returning the top 5 customers by total order value."}]}
+{"id": "code-3", "kind": "code", "messages": [{"role": "user", "content": "Fix the bug:\n```python\ndef mean(xs):\n    return sum(xs) / len(xs) - 1\n```"}]}
+{"id": "code-4", "kind": "code", "messages": [{"role": "user", "content": "Write a Rust function that reverses the words in a string."}]}
+{"id": "code-5", "kind": "code", "messages": [{"role": "user", "content": "Explain what this does:\n```js\nconst f = a => a.reduce((m, x) => m > x ? m : x, -Infinity);\n```"}]}
+{"id": "code-6", "kind": "code", "messages": [{"role": "user", "content": "Write a bash one-liner that counts lines in all .py files recursively."}]}
+{"id": "code-7", "kind": "code", "messages": [{"role": "user", "content": "Implement an LRU cache class in Python with get and put in O(1)."}]}
+{"id": "chat-0", "kind": "chat", "messages": [{"role": "system", "content": "You are a helpful travel assistant."}, {"role": "user", "content": "Hi! Can you help me plan a trip?"}, {"role": "assistant", "content": "Of course! Where would you like to go, and for how long?"}, {"role": "user", "content": "Hanoi for four days in March."}]}
+{"id": "chat-1", "kind": "chat", "messages": [{"role": "system", "content": "Bạn là trợ lý hướng dẫn học tập, trả lời bằng tiếng Việt."}, {"role": "user", "content": "Tôi muốn học lập trình, nên bắt đầu từ đâu?"}, {"role": "assistant", "content": "Bạn có thể bắt đầu với Python vì cú pháp dễ đọc. Bạn muốn làm web, dữ liệu hay ứng dụng?"}, {"role": "user", "content": "Dữ liệu."}]}
+{"id": "chat-2", "kind": "chat", "messages": [{"role": "system", "content": "Answer as briefly as possible."}, {"role": "user", "content": "What's 2+2?"}, {"role": "assistant", "content": "4."}, {"role": "user", "content": "And times 10?"}]}
+{"id": "chat-3", "kind": "chat", "messages": [{"role": "system", "content": "You are a strict senior code reviewer."}, {"role": "user", "content": "Review this function name: getData2Final."}]}
+{"id": "chat-4", "kind": "chat", "messages": [{"role": "system", "content": "You can call tools. Tools: [{\"name\": \"get_weather\", \"parameters\": {\"city\": \"string\"}}]. Reply with a JSON tool call."}, {"role": "user", "content": "Call the weather tool for Da Nang."}]}
+{"id": "chat-5", "kind": "chat", "messages": [{"role": "user", "content": "Solve: a train travels 120 km in 1.5 hours. What is its average speed? Show steps."}]}
+{"id": "math-0", "kind": "math", "messages": [{"role": "user", "content": "Prove that the square root of 2 is irrational."}]}
+{"id": "math-1", "kind": "math", "messages": [{"role": "user", "content": "Find all integer solutions of x^2 - y^2 = 15."}]}
+{"id": "raw-0", "kind": "raw", "text": "The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. "}
+{"id": "raw-1", "kind": "raw", "text": "def quicksort(xs):\n    if len(xs) <= 1:\n        return xs\n    pivot = xs[0]\n"}
+{"id": "raw-2", "kind": "raw", "text": "Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor"}
+{"id": "raw-3", "kind": "raw", "text": "Hà Nội là thủ đô của nước Cộng hòa Xã hội Chủ nghĩa Việt Nam, nằm ở"}
+{"id": "long-0", "kind": "long", "files": ["docs_snapshot.md", "apache_license.txt", "workloads_source.py.txt"], "instruction": "Tóm tắt tài liệu trên trong năm gạch đầu dòng."}
+{"id": "long-1", "kind": "long", "files": ["docs_snapshot.md", "parity_source.py.txt"], "instruction": "Theo tài liệu trên, khi nào một con số benchmark được phép công bố? Trả lời ngắn."}
+{"id": "long-2", "kind": "long", "files": ["harness_source.py.txt"], "instruction": "Explain what this program does and list possible bugs."}
+{"id": "long-3", "kind": "long", "files": ["apache_license.txt", "harness_source.py.txt", "docs_snapshot.md"], "instruction": "Which license applies to this code, and which metrics does the harness report?"}

@@ -1,0 +1,26 @@
+name: Bug report
+description: Wrong output, crash, or regression
+labels: [bug]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened, and what did you expect?
+    validations: {required: true}
+  - type: textarea
+    id: repro
+    attributes:
+      label: Minimal reproduction (command / code)
+      render: shell
+    validations: {required: true}
+  - type: input
+    id: commit
+    attributes:
+      label: vinfer commit
+    validations: {required: true}
+  - type: textarea
+    id: env
+    attributes:
+      label: Environment
+      description: GPU model, driver, CUDA, torch version, OS. Paste `nvidia-smi` and `python -c "import torch; print(torch.__version__, torch.version.cuda)"`.
+    validations: {required: true}

@@ -1,0 +1,21 @@
+name: Experiment proposal
+description: Propose an optimization to try and measure
+labels: [experiment]
+body:
+  - type: textarea
+    id: hypothesis
+    attributes:
+      label: Hypothesis
+      description: What change, and why do you expect it to help? Which metric, by roughly how much?
+    validations: {required: true}
+  - type: textarea
+    id: measure
+    attributes:
+      label: How to measure
+      description: Workload from bench/workloads/, hardware, and what counts as success or failure.
+    validations: {required: true}
+  - type: textarea
+    id: prior
+    attributes:
+      label: Prior art
+      description: Papers, vLLM/SGLang PRs, blog posts.

@@ -1,0 +1,23 @@
+name: GPU tests
+
+# Manual only: needs a self-hosted runner with a CUDA GPU and the `gpu` label.
+# Parity loads the model by repo id at the revision pinned in bench/models.lock, through the
+# HF cache, so nothing is downloaded up front.
+on:
+  workflow_dispatch:
+    inputs:
+      model:
+        description: "HF model id for parity tests (must be pinned in bench/models.lock)"
+        required: true
+
+jobs:
+  parity:
+    runs-on: [self-hosted, gpu]
+    timeout-minutes: 120
+    env:
+      MODEL: ${{ inputs.model }}
+    steps:
+      - uses: actions/checkout@v4
+      - run: nvidia-smi
+      - run: uv sync --locked --extra dev --extra parity
+      - run: make parity MODEL="$MODEL"

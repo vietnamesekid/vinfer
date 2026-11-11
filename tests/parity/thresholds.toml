@@ -1,0 +1,18 @@
+# Parity thresholds. Per-dtype values are set from the measured HF noise floor (`make noise`).
+# Never loosen a threshold to make a change pass.
+#
+# While status = "undecided", only comparisons that must be exact are supported: HF against the
+# same HF configuration. Comparisons with a tolerance are skipped until the values below exist.
+
+status = "undecided"  # becomes "decided" once the per-dtype values are filled in
+
+# Changes that do not alter the math (cache, batching, scheduling): argmax must match on every
+# position of the parity prompt set.
+[exact_math]
+argmax_mismatch = 0
+
+# Per-dtype logit thresholds for the vinfer forward pass against HF. Not set yet.
+# [bfloat16]
+# max_abs_logit = ?
+# kl_max = ?
+# argmax_mismatch_rate = ?

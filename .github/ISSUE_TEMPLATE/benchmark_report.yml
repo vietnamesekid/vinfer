@@ -1,0 +1,26 @@
+name: Benchmark report
+description: Share numbers you measured (including ones that disagree with ours)
+labels: [benchmark]
+body:
+  - type: input
+    id: commit
+    attributes: {label: vinfer commit}
+    validations: {required: true}
+  - type: textarea
+    id: hw
+    attributes:
+      label: Hardware and software
+      description: GPU(s), driver, CUDA, torch, and baseline versions (vLLM / SGLang).
+    validations: {required: true}
+  - type: textarea
+    id: cmd
+    attributes:
+      label: Exact commands for vinfer AND each baseline
+      render: shell
+    validations: {required: true}
+  - type: textarea
+    id: results
+    attributes:
+      label: Results
+      description: Paste or attach the JSON from bench/results/.
+    validations: {required: true}

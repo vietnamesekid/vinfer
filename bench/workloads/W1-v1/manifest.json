@@ -1,0 +1,58 @@
+{
+  "id": "W1-v1",
+  "spec": {
+    "id": "W1-v1",
+    "kind": "chat",
+    "sources": [
+      "sharegpt"
+    ],
+    "num_requests": 1000,
+    "seed": 0,
+    "prompt_tokens": [
+      4,
+      1024
+    ],
+    "output_tokens": [
+      4,
+      512
+    ],
+    "doc_tokens": [],
+    "turns": [
+      3,
+      6
+    ],
+    "notes": "First user turn of ShareGPT conversations; output length = length of the recorded first reply, clipped. Like vLLM's sharegpt sampling, shorter.",
+    "extra": {}
+  },
+  "sources": {
+    "sharegpt": {
+      "repo": "anon8231489123/ShareGPT_Vicuna_unfiltered",
+      "revision": "192ab2185289094fc556ec8ce5ce1e8e587154ca",
+      "file": "ShareGPT_V3_unfiltered_cleaned_split.json",
+      "license": "apache-2.0 (HF tag; content provenance unclear, not redistributed)"
+    }
+  },
+  "tokenizer": {
+    "repo": "Qwen/Qwen3.5-2B",
+    "revision": "15852e8c16360a2fea060d615a32b45270f8a8fc"
+  },
+  "num_requests": 1000,
+  "num_sessions": null,
+  "prompt_tokens": {
+    "min": 13,
+    "p50": 37.0,
+    "mean": 108.408,
+    "p99": 935.0899999999999,
+    "max": 1013,
+    "sum": 108408
+  },
+  "output_tokens": {
+    "min": 4,
+    "p50": 253.0,
+    "mean": 263.147,
+    "p99": 512.0,
+    "max": 512,
+    "sum": 263147
+  },
+  "sha256": "481ab90d91d392d367895ae185a6eea0c8ab50a834f9145d4bcf072ab3215cdb"
+}

@@ -1,0 +1,45 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+build/
+dist/
+.pytest_cache/
+.ruff_cache/
+
+# Model weights & caches: never commit
+/weights
+checkpoints/
+*.safetensors
+*.bin
+*.pt
+*.pth
+*.gguf
+.cache/
+hf_cache/
+
+# Raw benchmark output (summarized JSON in bench/results/ IS committed)
+bench/results/raw/
+*.nsys-rep
+*.ncu-rep
+*.qdrep
+profiles/
+
+# Third-party source checkouts for reading only
+reference/*
+!reference/README.md
+
+# OS / editors
+.DS_Store
+.idea/
+.vscode/
+
+# Per-engine baseline venvs (scripts/setup_baselines.sh)
+.venvs/
+
+# Generated workloads (regenerate with bench/workloads/generate.py; manifest.json is committed)
+bench/workloads/*/requests.jsonl
+
+.env.bench
+

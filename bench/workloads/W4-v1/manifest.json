@@ -1,0 +1,58 @@
+{
+  "id": "W4-v1",
+  "spec": {
+    "id": "W4-v1",
+    "kind": "multi_turn",
+    "sources": [
+      "sharegpt"
+    ],
+    "num_requests": 200,
+    "seed": 0,
+    "prompt_tokens": [
+      4,
+      16384
+    ],
+    "output_tokens": [
+      16,
+      512
+    ],
+    "doc_tokens": [],
+    "turns": [
+      3,
+      6
+    ],
+    "notes": "Agent loop: one shared system prompt (rules + 24 JSON tool schemas, ~3.3k tokens) + ShareGPT conversations with >= 3 user turns. Turn k sends the system prompt and the recorded history up to turn k; output length = recorded reply k, clipped.",
+    "extra": {}
+  },
+  "sources": {
+    "sharegpt": {
+      "repo": "anon8231489123/ShareGPT_Vicuna_unfiltered",
+      "revision": "192ab2185289094fc556ec8ce5ce1e8e587154ca",
+      "file": "ShareGPT_V3_unfiltered_cleaned_split.json",
+      "license": "apache-2.0 (HF tag; content provenance unclear, not redistributed)"
+    }
+  },
+  "tokenizer": {
+    "repo": "Qwen/Qwen3.5-2B",
+    "revision": "15852e8c16360a2fea060d615a32b45270f8a8fc"
+  },
+  "num_requests": 804,
+  "num_sessions": 200,
+  "prompt_tokens": {
+    "min": 3327,
+    "p50": 3837.5,
+    "mean": 3957.8034825870645,
+    "p99": 5241.91,
+    "max": 5382,
+    "sum": 3182074
+  },
+  "output_tokens": {
+    "min": 16,
+    "p50": 253.0,
+    "mean": 257.3333333333333,
+    "p99": 512.0,
+    "max": 512,
+    "sum": 206896
+  },
+  "sha256": "ad792bb2ccaaac0707f2dd3b2db39bec1cd31c6c7da712974549416ac545f8c4"
+}
