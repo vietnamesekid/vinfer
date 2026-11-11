@@ -7,6 +7,8 @@ batch size, padding side, request order, attention implementation.
 
 from __future__ import annotations
 
+import importlib.metadata
+import importlib.util
 from collections.abc import Iterator, Sequence
 from dataclasses import dataclass
 from typing import Literal, Protocol
@@ -54,17 +56,38 @@ def environment() -> dict[str, str]:
         "transformers": transformers.__version__,
         "gpu": torch.cuda.get_device_name(0) if torch.cuda.is_available() else "cpu",
         "gdn_backend": gdn_backend(),
+        "conv_backend": conv_backend(),
+        "flash-linear-attention": _dist_version("flash-linear-attention"),
+        "causal-conv1d": _dist_version("causal-conv1d"),
     }
 
 
-def gdn_backend() -> str:
-    """Which Gated DeltaNet implementation HF will use: the fla kernels if importable."""
-    try:
-        import fla  # noqa: F401
+# Optional kernel libraries HF Transformers uses for Gated DeltaNet layers when importable,
+# falling back to PyTorch otherwise. Each one changes the logits, so each is recorded.
+def _installed(module: str) -> bool:
+    return importlib.util.find_spec(module) is not None
 
-        return "fla"
-    except ImportError:
-        return "torch"
+
+def _dist_version(dist: str) -> str:
+    try:
+        return importlib.metadata.version(dist)
+    except importlib.metadata.PackageNotFoundError:
+        return "none"
+
+
+def gdn_backend() -> str:
+    """Gated DeltaNet recurrence (chunk_gated_delta_rule): fla kernels if importable."""
+    return "fla" if _installed("fla") else "torch"
+
+
+def conv_backend() -> str:
+    """Gated DeltaNet short convolution (causal_conv1d_fn): the CUDA kernel if importable."""
+    return "causal_conv1d" if _installed("causal_conv1d") else "torch"
+
+
+def backend_tag() -> str:
+    """Short label of the kernel combination, for file names: torch, fla, fla-cconv, ..."""
+    return gdn_backend() + ("-cconv" if conv_backend() == "causal_conv1d" else "")
 
 
 class HFCandidate:

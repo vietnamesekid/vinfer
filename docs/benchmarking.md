@@ -61,7 +61,8 @@ Before renting: the repo is committed and pushed to a remote the machine can clo
 2. `VINFER_INSTANCE_TYPE="1x H100 80GB SXM" VINFER_DEDICATED=1 ./scripts/setup.sh`. It writes
    `.env.bench`, which `make` and the harness read automatically.
 3. Correctness and tooling checks: `make parity MODEL=Qwen/Qwen3.5-2B`, `make noise
-   MODEL=Qwen/Qwen3.5-2B` (once with and once without `flash-linear-attention` installed),
+   MODEL=Qwen/Qwen3.5-2B` (once per GDN kernel combination: PyTorch only, with
+   `flash-linear-attention`, and with `flash-linear-attention` + `causal-conv1d`),
    `make validate MODEL=Qwen/Qwen3.5-2B`. Running these first surfaces setup problems within
    minutes, before the long run.
 4. Baselines: `make bench-all MODEL=Qwen/Qwen3.5-2B` from a clean commit

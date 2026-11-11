@@ -6,14 +6,16 @@ not change the result are varied, so every difference is noise the engine will a
 - batch size {1, 4, 16}, request order (shuffled), padding side (right/left),
 - attention implementation (sdpa / eager),
 - dtype: bf16 and fp16 runs against an fp32 reference (the "true" logits),
-- GDN backend (fla kernels vs torch): not switchable in-process; run this script twice, once
-  in an env with ``flash-linear-attention`` installed and once without, and compare the outputs.
+- GDN kernels: not switchable in-process. HF uses ``flash-linear-attention`` (recurrence) and
+  ``causal_conv1d`` (short convolution) when importable, PyTorch otherwise. Run this script once
+  per installed combination (torch only, + fla, + fla and causal_conv1d) and compare the outputs.
 
 Usage (GPU)::
 
     python -m tests.parity.noise_floor --model Qwen/Qwen3.5-2B --revision <sha>
 
-Output (default ``bench/results/raw/noise-floor-<fla|torch>.json``): one JSON with, for each
+Output (default ``bench/results/raw/noise-floor-<backends>.json``, e.g. ``torch``, ``fla``,
+``fla-cconv``): one JSON with, for each
 variant, the aggregate and per-prompt metrics of ``tests/parity/logits.py:compare``, plus the
 environment.
 """
@@ -28,8 +30,13 @@ import torch
 
 from bench.harness.config import pinned_revision
 from tests.parity import prompt_set
-from tests.parity.candidates import HFCandidate, HFConfig, environment, gdn_backend
+from tests.parity.candidates import HFCandidate, HFConfig, backend_tag, environment
 from tests.parity.logits import LogitSummary, aggregate, compare
+
+
+def default_out() -> Path:
+    """Default output path, named after the GDN kernel backends HF will use."""
+    return Path(f"bench/results/raw/noise-floor-{backend_tag()}.json")
 
 
 def variants(model: str, revision: str | None, dtype: str) -> dict[str, HFConfig]:
@@ -98,15 +105,17 @@ def main() -> None:
     p.add_argument("--revision", help="default: the pin in bench/models.lock")
     p.add_argument("--dtypes", nargs="+", default=["bfloat16", "float16"])
     # Default under bench/results/raw/ (git-ignored): writing into experiments/ mid-session
-    # would make the tree dirty and block official benchmark runs until a commit. The GDN
-    # backend is in the name, so the runs with and without flash-linear-attention both stay.
-    p.add_argument("--out", type=Path, help="default: bench/results/raw/noise-floor-<gdn>.json")
+    # would make the tree dirty and block official benchmark runs until a commit. The kernel
+    # backends are in the name, so the runs of every installed combination all stay.
+    p.add_argument(
+        "--out", type=Path, help="default: bench/results/raw/noise-floor-<backends>.json"
+    )
     a = p.parse_args()
     # Same weights as parity and the baselines: never silently fall back to `main`.
     revision = a.revision or pinned_revision(a.model)
     if revision is None:
         raise SystemExit(f"no revision for {a.model}: pin it in bench/models.lock or pass one")
-    out = a.out or Path(f"bench/results/raw/noise-floor-{gdn_backend()}.json")
+    out = a.out or default_out()
     run(a.model, revision, out, a.dtypes)
 
 
