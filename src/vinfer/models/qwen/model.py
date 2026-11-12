@@ -201,11 +201,19 @@ class QwenModel(nn.Module):
 
     @torch.inference_mode()
     def forward_hidden(
-        self, input_ids: torch.Tensor, start: int, slot: int, pool: StatePool
+        self,
+        input_ids: torch.Tensor,
+        start: int,
+        slot: int,
+        pool: StatePool,
+        layer_outputs: list[torch.Tensor] | None = None,
     ) -> torch.Tensor:
         """Final-norm hidden states ``[T, hidden]`` for ``input_ids`` (``[T]``) at positions
         ``start .. start+T-1`` of ``slot``. The slot must hold exactly the ``start`` tokens
-        before them; its state advances to ``start + T``."""
+        before them; its state advances to ``start + T``.
+
+        ``layer_outputs``, if given, receives each decoder layer's output (for debugging parity
+        layer by layer)."""
         x = self.embed_tokens(input_ids)
         positions = torch.arange(start, start + input_ids.shape[0], device=input_ids.device)
         cos, sin = rope_cos_sin(positions, self.inv_freq, x.dtype)
@@ -217,6 +225,8 @@ class QwenModel(nn.Module):
                 h = layer.linear_attn(h, pool.conv_state(i, slot), pool.ssm_state(i, slot))
             x = x + h
             x = x + layer.mlp(layer.post_attention_layernorm(x))
+            if layer_outputs is not None:
+                layer_outputs.append(x.clone())
         return self.norm(x)
 
     @torch.inference_mode()

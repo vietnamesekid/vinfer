@@ -1,4 +1,4 @@
-"""Things whose logits can be compared: HF Transformers today, the vinfer engine later.
+"""Things whose logits can be compared: HF Transformers (the reference) and the vinfer engine.
 
 A candidate turns token ids into ``LogitSummary`` objects (``tests/parity/logits.py``).
 HF knobs exposed here are exactly the noise-floor dimensions (``noise_floor.py``): dtype,
@@ -147,3 +147,51 @@ class HFCandidate:
                 )
                 out[i] = summarize(self._chunks(h), full_positions(len(s)))
         return [out[i] for i in range(len(prompts))]
+
+
+class VinferCandidate:
+    """The vinfer engine, one prompt at a time (batch size 1).
+
+    Long prompts are prefilled in pieces of ``prefill_chunk`` tokens: the reference attention
+    materializes ``[heads, T, T]`` scores, which for a 16K-token prompt would take tens of GB.
+    Prefilling in pieces gives the same result (tests/unit/models/test_qwen_model.py).
+    """
+
+    def __init__(
+        self,
+        path: str,
+        dtype: str = "bfloat16",
+        device: str = "cuda",
+        prefill_chunk: int = 2048,
+        lm_head_chunk: int = 1024,
+        model=None,
+    ) -> None:
+        from vinfer.models.qwen import load_qwen
+
+        self.model = model if model is not None else load_qwen(path, DTYPES[dtype], device)
+        self.prefill_chunk = prefill_chunk
+        self.lm_head_chunk = lm_head_chunk
+        self.name = f"vinfer[{dtype},prefill_chunk={prefill_chunk}]"
+
+    def hidden(self, ids: list[int], layer_outputs: list | None = None) -> torch.Tensor:
+        model = self.model
+        device = model.embed_tokens.weight.device
+        pool = model.new_state_pool(num_slots=1, max_seq_len=len(ids))
+        slot = pool.alloc()
+        pieces = []
+        for start in range(0, len(ids), self.prefill_chunk):
+            piece = torch.tensor(ids[start : start + self.prefill_chunk], device=device)
+            pieces.append(model.forward_hidden(piece, start, slot, pool, layer_outputs))
+        return torch.cat(pieces)
+
+    @torch.inference_mode()
+    def summaries(self, prompts: Sequence[list[int]]) -> list[LogitSummary]:
+        out = []
+        for ids in prompts:
+            hidden = self.hidden(list(ids))
+            chunks = (
+                self.model.logits(hidden[s : s + self.lm_head_chunk])
+                for s in range(0, hidden.shape[0], self.lm_head_chunk)
+            )
+            out.append(summarize(chunks, full_positions(len(ids))))
+        return out
