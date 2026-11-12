@@ -7,3 +7,7 @@ design question.
 
 Must not: know about requests or SLOs.
 """
+
+from vinfer.state.pool import AttentionStateSpec, LayerStateSpec, RecurrentStateSpec, StatePool
+
+__all__ = ["AttentionStateSpec", "LayerStateSpec", "RecurrentStateSpec", "StatePool"]
