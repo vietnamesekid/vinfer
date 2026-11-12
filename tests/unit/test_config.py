@@ -14,6 +14,11 @@ def test_engine_config_is_the_source_of_device_and_dtype():
     assert cfg.torch_dtype == torch.float32 and cfg.torch_device == torch.device("cpu")
 
 
+def test_serving_parsers_default_to_the_model_family():
+    cfg = EngineConfig(model="dummy")
+    assert (cfg.serving.reasoning_parser, cfg.serving.tool_call_parser) == ("auto", "auto")
+
+
 def test_kernel_config_from_string():
     import pytest
 

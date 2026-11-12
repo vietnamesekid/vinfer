@@ -64,6 +64,19 @@ class SchedulerConfig:
 
 
 @dataclass(frozen=True)
+class ServingConfig:
+    """How the API server turns generated text into an OpenAI message (``vinfer.server.parsers``).
+
+    ``"auto"`` picks the parser for the checkpoint's ``model_type``; ``"none"`` returns the raw
+    text as ``content``. These change only how text is presented, never which tokens are
+    generated, so they are not optimization flags.
+    """
+
+    reasoning_parser: str = "auto"  # splits reasoning_content from content
+    tool_call_parser: str = "auto"  # extracts tool_calls
+
+
+@dataclass(frozen=True)
 class EngineConfig:
     model: str  # local checkpoint directory. No default: always explicit.
     dtype: Dtype = "bfloat16"
@@ -72,6 +85,7 @@ class EngineConfig:
     kernels: KernelConfig = field(default_factory=KernelConfig)
     state: StateConfig = field(default_factory=StateConfig)
     scheduler: SchedulerConfig = field(default_factory=SchedulerConfig)
+    serving: ServingConfig = field(default_factory=ServingConfig)
 
     @property
     def torch_dtype(self) -> torch.dtype:
