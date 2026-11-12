@@ -33,15 +33,20 @@ class Tokenizer:
                 ids.update(value if isinstance(value, list) else [] if value is None else [value])
         return ids
 
-    def chat_ids(self, messages: list[dict[str, Any]], **template_kwargs: Any) -> list[int]:
-        """Token ids of ``messages`` through the chat template. A template that rejects the
-        messages (Qwen's call ``raise_exception``) raises ``ValueError``: it is the request's
-        fault, not the server's."""
+    def chat_ids(
+        self,
+        messages: list[dict[str, Any]],
+        tools: list[dict[str, Any]] | None = None,
+        **template_kwargs: Any,
+    ) -> list[int]:
+        """Token ids of ``messages`` (and the ``tools`` schemas, if any) through the chat
+        template. A template that rejects the messages (Qwen's call ``raise_exception``) raises
+        ``ValueError``: it is the request's fault, not the server's."""
         from jinja2 import TemplateError
 
         try:
             ids = self._tok.apply_chat_template(
-                messages, add_generation_prompt=True, tokenize=True, **template_kwargs
+                messages, tools=tools, add_generation_prompt=True, tokenize=True, **template_kwargs
             )
         except TemplateError as exc:
             raise ValueError(f"chat template rejected the messages: {exc}") from exc
@@ -52,5 +57,7 @@ class Tokenizer:
     def encode(self, text: str) -> list[int]:
         return list(self._tok.encode(text, add_special_tokens=False))
 
-    def decode(self, ids: list[int]) -> str:
-        return self._tok.decode(ids, skip_special_tokens=True)
+    def decode(self, ids: list[int], skip_special_tokens: bool = True) -> str:
+        """Text of ``ids``. Special tokens (``<|im_start|>``) are dropped unless
+        ``skip_special_tokens=False``, which shows the turn boundaries of a prompt."""
+        return self._tok.decode(ids, skip_special_tokens=skip_special_tokens)

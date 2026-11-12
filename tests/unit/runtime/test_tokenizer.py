@@ -54,3 +54,17 @@ def test_decode_skips_special_tokens(tiny_tokenizer_dir):
     ours = Tokenizer(tiny_tokenizer_dir)
     assert ours.decode([1, 5, 6, 2]) == "hello world"
     assert ours.encode("hello world") == [5, 6]
+
+
+def test_decode_can_keep_special_tokens_to_show_turn_boundaries(tiny_tokenizer_dir):
+    ours = Tokenizer(tiny_tokenizer_dir)
+    assert ours.decode([1, 4], skip_special_tokens=False) == "<|im_start|> assistant"
+
+
+def test_tools_reach_the_chat_template(tiny_tokenizer_dir):
+    hf = transformers.AutoTokenizer.from_pretrained(str(tiny_tokenizer_dir))
+    hf.chat_template = "{% for t in tools %}{{ t['function']['name'] }} {% endfor %}"
+    hf.save_pretrained(tiny_tokenizer_dir / "tools")
+    with_tools = Tokenizer(tiny_tokenizer_dir / "tools")
+    tools = [{"type": "function", "function": {"name": "hello"}}]
+    assert with_tools.chat_ids([{"role": "user", "content": "x"}], tools) == [5]
