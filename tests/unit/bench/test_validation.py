@@ -93,6 +93,10 @@ def test_validate_end_to_end(tmp_path, monkeypatch):
     assert rows["ttft_ms.p50"]["theirs"] == 10.0 and rows["ttft_ms.p50"]["ours"] > 0
     assert rows["output_tokens_per_s"]["rel_diff"] is not None
     assert json.loads(cfg.out.read_text())["benchmarks"]["fake"]["levels"].keys() == {"c2"}
+    # Every measured run of ours leaves per-request records next to the report.
+    records = tmp_path / "p06" / "fake.c2.run0.ours.jsonl"
+    lines = [json.loads(ln) for ln in records.read_text().splitlines()]
+    assert len(lines) == len(requests) and {"ttft", "itl", "latency"} <= lines[0].keys()
 
 
 def test_validation_requests_are_single_turn_with_fixed_output(monkeypatch):

@@ -198,7 +198,17 @@ async def _validate_benchmark(
                     if side == "theirs":
                         theirs.append(await _run_benchmark(benchmark, benchmark_run))
                     else:
-                        ours.append(await _run_ours(server, cfg, requests, concurrency))
+                        ours.append(
+                            await _run_ours(
+                                server,
+                                cfg,
+                                requests,
+                                concurrency,
+                                # Per-request records: mean-only comparison cannot show whether
+                                # a gap comes from all requests or from a few stragglers.
+                                out=benchmark_run.result.with_suffix(".ours.jsonl"),
+                            )
+                        )
             entry["levels"][f"c{concurrency}"] = compare(ours, theirs)
             save()
             _print_level(benchmark.name, concurrency, entry["levels"][f"c{concurrency}"])
@@ -222,7 +232,11 @@ async def _run_benchmark(benchmark: EngineBenchmark, run: EngineBenchmarkRun) ->
 
 
 async def _run_ours(
-    server: RunningServer, cfg: ValidationConfig, requests: list[Request], concurrency: int
+    server: RunningServer,
+    cfg: ValidationConfig,
+    requests: list[Request],
+    concurrency: int,
+    out: Path | None = None,
 ) -> dict[str, Any]:
     timings, wall_time = await send_requests(
         server.base_url,
@@ -230,6 +244,8 @@ async def _run_ours(
         requests,
         max_concurrency=concurrency,
     )
+    if out is not None:
+        out.write_text("".join(json.dumps(t.to_dict()) + "\n" for t in timings))
     return run_metrics(timings, wall_time)
 
 
