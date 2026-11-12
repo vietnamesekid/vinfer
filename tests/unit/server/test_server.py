@@ -16,9 +16,11 @@ import pytest
 from bench.harness.http_client import stream_chat_completion
 from bench.harness.workload import Request
 from tests.unit.models import fixtures
+from tests.unit.server.fakes import FakeScheduler, FakeTokenizer
 from vinfer.runtime.tokenizer import Tokenizer
 from vinfer.scheduler.serial import SerialScheduler
 from vinfer.server.app import create_app
+from vinfer.server.parsers import OutputParsers
 
 aiohttp = pytest.importorskip("aiohttp")
 uvicorn = pytest.importorskip("uvicorn")
@@ -33,6 +35,24 @@ def _free_port() -> int:
         return s.getsockname()[1]
 
 
+def _serve(app):
+    """Run ``app`` in uvicorn on a free port; returns ``(url, stop)``."""
+    port = _free_port()
+    srv = uvicorn.Server(uvicorn.Config(app, port=port))
+    thread = threading.Thread(target=srv.run, daemon=True)
+    thread.start()
+    deadline = time.time() + 20
+    while not srv.started and time.time() < deadline:
+        time.sleep(0.05)
+    assert srv.started
+
+    def stop():
+        srv.should_exit = True
+        thread.join(timeout=10)
+
+    return f"http://127.0.0.1:{port}", stop
+
+
 @pytest.fixture(scope="module")
 def server(tmp_path_factory):
     path = fixtures.save(fixtures.hf_qwen3_5(), tmp_path_factory.mktemp("srv"))
@@ -41,17 +61,9 @@ def server(tmp_path_factory):
     tokenizer = Tokenizer(path)
     pool = model.new_state_pool(num_slots=1, max_seq_len=128)
     scheduler = SerialScheduler(model, pool, tokenizer.eos_token_ids, tokenizer.decode)
-    port = _free_port()
-    srv = uvicorn.Server(uvicorn.Config(create_app(scheduler, tokenizer, "tiny"), port=port))
-    thread = threading.Thread(target=srv.run, daemon=True)
-    thread.start()
-    deadline = time.time() + 20
-    while not srv.started and time.time() < deadline:
-        time.sleep(0.05)
-    assert srv.started
-    yield {"url": f"http://127.0.0.1:{port}", "pool": pool, "tokenizer": tokenizer}
-    srv.should_exit = True
-    thread.join(timeout=10)
+    url, stop = _serve(create_app(scheduler, tokenizer, "tiny"))
+    yield {"url": url, "pool": pool, "tokenizer": tokenizer}
+    stop()
     scheduler.close()
 
 
@@ -128,3 +140,30 @@ def test_client_disconnect_frees_the_slot(server):
     while server["pool"].num_free != 1 and time.time() < deadline:
         time.sleep(0.05)
     assert server["pool"].num_free == 1
+
+
+def test_harness_counts_every_token_when_parsers_hold_text_back():
+    # Reasoning and a tool call whose tags are split across tokens: the parsers hold text back
+    # on several tokens, and each still gets its chunk, so the harness sees 12 tokens.
+    pieces = [
+        "Think", "ing", "\n</", "think>", "\n\n", "<tool", "_call>", "\n<function=f>",
+        "\n<parameter=a>\n1", "\n</parameter>", "\n</function>", "\n</tool_call>",
+    ]  # fmt: skip
+    tokenizer = FakeTokenizer("<|im_start|>assistant\n<think>\n")
+    parsers = OutputParsers("qwen3", "qwen3_coder")
+    url, stop = _serve(create_app(FakeScheduler(pieces), tokenizer, "tiny", parsers))
+    tools = [{"type": "function", "function": {"name": "f"}}]
+
+    async def go():
+        async with aiohttp.ClientSession() as session:
+            return await stream_chat_completion(
+                session, url + "/v1/chat/completions", "tiny", Request("r0", MESSAGES, 12),
+                extra_body={"tools": tools},
+            )  # fmt: skip
+
+    try:
+        timing = asyncio.run(go())
+    finally:
+        stop()
+    assert timing.success, timing.error
+    assert timing.output_tokens == 12 and len(timing.itl) == 11
