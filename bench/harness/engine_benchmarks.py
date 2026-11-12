@@ -113,7 +113,8 @@ class VllmBenchServe(EngineBenchmark):
             "--num-prompts", str(run.num_requests), "--max-concurrency", str(run.concurrency),
             "--request-rate", "inf", "--num-warmups", "0", "--seed", str(SEED),
             "--percentile-metrics", "ttft,tpot,itl,e2el", "--metric-percentiles", "50,95,99",
-            "--save-result", "--result-dir", str(run.result.parent),
+            "--save-result", "--save-detailed",  # per request: ttfts, itls, start_times, texts
+            "--result-dir", str(run.result.parent),
             "--result-filename", run.result.name,
         ]  # fmt: skip
 
@@ -151,6 +152,7 @@ class SglangBenchServing(EngineBenchmark):
             "--num-prompts", str(run.num_requests), "--max-concurrency", str(run.concurrency),
             "--request-rate", "inf", "--warmup-requests", "0", "--seed", str(SEED),
             "--output-file", str(run.result),
+            "--output-details",  # per request: ttfts, itls, input_lens, texts (no start times)
         ]  # fmt: skip
 
     def send_order(self, n: int) -> list[int]:

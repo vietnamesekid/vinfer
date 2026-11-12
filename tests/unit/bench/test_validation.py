@@ -35,6 +35,21 @@ def test_commands_pin_the_comparison_settings(name):
     assert "256" in command  # the fixed output length
 
 
+@pytest.mark.parametrize(
+    ("name", "flag"), [("vllm", "--save-detailed"), ("sglang", "--output-details")]
+)
+def test_tools_keep_per_request_records(name, flag):
+    # Compared against ours.jsonl to see whether a gap comes from all requests or a few.
+    assert flag in ENGINE_BENCHMARKS[name].command(RUN)
+
+
+def test_detailed_result_still_reads(tmp_path):
+    detailed = FLAT_RESULT | {"ttfts": [0.01, 0.02], "itls": [[0.004], [0.005]]}
+    path = tmp_path / "r.json"
+    path.write_text(json.dumps(detailed) + "\n")
+    assert ENGINE_BENCHMARKS["sglang"].read_result(path)["ttft_ms"]["p50"] == 10.0
+
+
 def test_vllm_benchmark_forces_eos_and_skips_its_chat_template():
     command = ENGINE_BENCHMARKS["vllm"].command(RUN)
     assert "--ignore-eos" in command and "--skip-chat-template" in command
