@@ -147,6 +147,7 @@ def _delta_message(d: OutputDelta) -> DeltaMessage:
     return DeltaMessage(
         content=d.content if d.content or empty else None,
         reasoning_content=d.reasoning or None,
+        reasoning=d.reasoning or None,
         tool_calls=calls or None,
     )
 
@@ -249,6 +250,7 @@ def create_app(
         message = ResponseMessage(
             content=out.content if out.content or not calls else None,
             reasoning_content=out.reasoning,
+            reasoning=out.reasoning,
             tool_calls=calls,
         )
         response = ChatCompletion(

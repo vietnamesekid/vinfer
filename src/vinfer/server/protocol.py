@@ -18,9 +18,6 @@ class _Model(BaseModel):
     model_config = ConfigDict(extra="allow")
 
 
-# --- Request -----------------------------------------------------------------------------------
-
-
 class FunctionDefinition(_Model):
     name: str
     description: str | None = None
@@ -170,9 +167,6 @@ def unsupported_fields(request: ChatCompletionRequest) -> list[str]:
     return bad
 
 
-# --- Responses ---------------------------------------------------------------------------------
-
-
 class Usage(BaseModel):
     prompt_tokens: int
     completion_tokens: int
@@ -193,7 +187,10 @@ class ToolCallOut(BaseModel):
 class ResponseMessage(BaseModel):
     role: Literal["assistant"] = "assistant"
     content: str | None
+    # The same text under both names: DeepSeek-style clients read reasoning_content, current
+    # vLLM clients read reasoning.
     reasoning_content: str | None = None
+    reasoning: str | None = None
     tool_calls: list[ToolCallOut] = Field(default_factory=list)
 
 
@@ -224,7 +221,8 @@ class DeltaMessage(BaseModel):
 
     role: Literal["assistant"] | None = None
     content: str | None = None
-    reasoning_content: str | None = None
+    reasoning_content: str | None = None  # also sent as ``reasoning`` (see ResponseMessage)
+    reasoning: str | None = None
     tool_calls: list[DeltaToolCall] | None = None
 
 

@@ -65,7 +65,7 @@ def test_non_streaming_reasoning_content_and_tool_calls():
     assert choice["finish_reason"] == "tool_calls"
     msg = choice["message"]
     assert msg["role"] == "assistant"
-    assert msg["reasoning_content"] == "Need weather."
+    assert msg["reasoning_content"] == msg["reasoning"] == "Need weather."
     assert msg["content"] == "Checking."
     [call] = msg["tool_calls"]
     assert call["type"] == "function" and call["id"].startswith("chatcmpl-tool-")
@@ -83,6 +83,7 @@ def test_streaming_sends_one_chunk_per_token_and_assembles_the_same_message():
     assert len(tokens) == len(QWEN35_OUTPUT)  # held-back text still gets its chunk
     assert all("usage" not in e for e in events)  # not asked for
     reasoning = "".join(e["choices"][0]["delta"].get("reasoning_content", "") for e in tokens)
+    assert reasoning == "".join(e["choices"][0]["delta"].get("reasoning", "") for e in tokens)
     content = "".join(e["choices"][0]["delta"].get("content", "") for e in tokens)
     calls = [c for e in tokens for c in e["choices"][0]["delta"].get("tool_calls", [])]
     assert (reasoning, content) == ("Need weather.", "Checking.")
