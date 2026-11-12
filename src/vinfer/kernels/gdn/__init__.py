@@ -1,6 +1,8 @@
-"""Gated DeltaNet (linear attention with a fixed-size recurrent state)."""
+"""Gated DeltaNet: the ``GDNBackend`` interface, its registry, and the reference."""
 
+from vinfer.kernels.gdn.base import GDN, GDNBackend
 from vinfer.kernels.gdn.reference import (
+    ReferenceGDN,
     causal_conv1d,
     chunk_gated_delta_rule,
     gdn_gating,
@@ -9,6 +11,9 @@ from vinfer.kernels.gdn.reference import (
 )
 
 __all__ = [
+    "GDN",
+    "GDNBackend",
+    "ReferenceGDN",
     "causal_conv1d",
     "chunk_gated_delta_rule",
     "gdn_gating",

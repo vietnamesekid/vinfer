@@ -6,6 +6,8 @@ import math
 
 import torch
 
+from vinfer.kernels.attention.base import ATTENTION
+
 
 def attention_reference(
     q: torch.Tensor,
@@ -47,3 +49,22 @@ def attention_reference(
         scores = scores.masked_fill(mask, float("-inf"))
     probs = torch.softmax(scores, dim=-1)
     return torch.matmul(probs, v.float()).to(q.dtype)
+
+
+@ATTENTION.register("reference")
+class ReferenceAttention:
+    """``AttentionBackend`` over ``attention_reference``: contiguous cache, any device/dtype."""
+
+    def forward(
+        self,
+        q: torch.Tensor,
+        k: torch.Tensor,
+        v: torch.Tensor,
+        kv_cache: tuple[torch.Tensor, torch.Tensor],
+        start: int,
+    ) -> torch.Tensor:
+        k_cache, v_cache = kv_cache
+        end = start + q.shape[1]
+        k_cache[:, start:end] = k
+        v_cache[:, start:end] = v
+        return attention_reference(q[None], k_cache[None, :, :end], v_cache[None, :, :end])[0]

@@ -35,6 +35,8 @@ from __future__ import annotations
 import torch
 import torch.nn.functional as F
 
+from vinfer.kernels.gdn.base import GDN
+
 
 def gdn_gating(
     a: torch.Tensor, b: torch.Tensor, a_log: torch.Tensor, dt_bias: torch.Tensor
@@ -195,3 +197,28 @@ def causal_conv1d(
     if activation:
         y = F.silu(y)
     return y.transpose(1, 2).to(x.dtype), full[..., -(width - 1) :].contiguous()
+
+
+@GDN.register("reference")
+class ReferenceGDN:
+    """``GDNBackend`` over the functions above: recurrent form for one token, chunked form for
+    more; any device/dtype. Works on copies and writes the new state back (not fused)."""
+
+    def conv(self, x: torch.Tensor, weight: torch.Tensor, conv_state: torch.Tensor) -> torch.Tensor:
+        y, new_state = causal_conv1d(x[None], weight, conv_state[None])
+        conv_state.copy_(new_state[0])
+        return y[0]
+
+    def rule(
+        self,
+        q: torch.Tensor,
+        k: torch.Tensor,
+        v: torch.Tensor,
+        g: torch.Tensor,
+        beta: torch.Tensor,
+        ssm_state: torch.Tensor,
+    ) -> torch.Tensor:
+        form = recurrent_gated_delta_rule if v.shape[0] == 1 else chunk_gated_delta_rule
+        out, final = form(q[None], k[None], v[None], g[None], beta[None], ssm_state[None])
+        ssm_state.copy_(final[0])
+        return out[0]

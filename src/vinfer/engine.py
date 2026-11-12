@@ -21,6 +21,6 @@ class Engine:
 
 
 def build_engine(cfg: EngineConfig) -> Engine:
-    model = load_model(cfg.model, cfg.torch_dtype, cfg.torch_device)
+    model = load_model(cfg.model, cfg.torch_dtype, cfg.torch_device, cfg.kernels)
     pool = model.new_state_pool(cfg.state.num_slots, cfg.state.max_seq_len)
     return Engine(cfg, model, Tokenizer(cfg.model), pool)
