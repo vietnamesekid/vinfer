@@ -107,6 +107,9 @@ class VllmBenchServe(EngineBenchmark):
             "--skip-chat-template",  # send the prompt as the user message, as we do
             "--disable-shuffle",  # keep the dataset order, which is ours (datasets.py)
             "--custom-output-len", str(run.output_len), "--ignore-eos",
+            # Greedy, as we send. Without it the server default applies: Qwen3.5 ships no
+            # generation_config.json, so requests run at temperature 1.0 (protocol.py).
+            "--temperature", "0",
             "--num-prompts", str(run.num_requests), "--max-concurrency", str(run.concurrency),
             "--request-rate", "inf", "--num-warmups", "0", "--seed", str(SEED),
             "--percentile-metrics", "ttft,tpot,itl,e2el", "--metric-percentiles", "50,95,99",
