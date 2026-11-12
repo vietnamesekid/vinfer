@@ -109,5 +109,6 @@ model.language_model.norm.weight                             BF16 [2048]
 ```
 
 `A_log` and the DeltaNet `norm.weight` are stored in fp32. HF Transformers declares no
-fp32-kept modules for this model, so loading it with `dtype=bfloat16` presumably rounds them to
-bf16; the engine keeps the stored dtype. To be confirmed by a load test.
+fp32-kept modules for this model, and loading it with `dtype=bfloat16` rounds both to bf16
+(checked with transformers 5.22.2 on a tiny checkpoint laid out like this one). The engine keeps
+the stored dtype, so this is one known source of difference from HF in bf16 parity runs.
