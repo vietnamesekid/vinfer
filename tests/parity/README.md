@@ -17,6 +17,7 @@ Both use the revision pinned in `bench/models.lock` unless `REVISION=<sha>` is g
 | `test_parity.py` | GPU parity test; reference summaries cached in `$VINFER_PARITY_CACHE` |
 | `noise_floor.py` | Noise-floor measurement (`make noise`) |
 | `thresholds.toml` | Parity thresholds |
+| `thresholds.py` | Loads them and checks per-prompt metrics per group |
 
 The tooling itself is tested on CPU with a tiny random Qwen3.5 (`tests/unit/parity/`).
 
@@ -30,5 +31,8 @@ How thresholds are set:
 4. Changes that alter the math (quantization, lossy speculative decoding): judged by a quality
    eval, with a maximum allowed drop.
 
-Until the per-dtype thresholds are set from a measured noise floor, only exact comparisons
-are supported. Never loosen a threshold to make a change pass.
+The bf16 thresholds are set (2026-11-12, from `experiments/EXP-000-noise-floor/`): see
+`thresholds.toml`. `thresholds.check` applies them per prompt group (`short`, `long`), so a bug
+confined to the short prompts is not hidden by the long documents, which hold 97% of the
+positions. No GPU test calls it yet: there is no vinfer candidate to compare, so `make parity`
+checks only HF self-parity (bit-exact). Never loosen a threshold to make a change pass.

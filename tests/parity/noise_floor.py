@@ -29,7 +29,7 @@ from pathlib import Path
 import torch
 
 from bench.harness.config import pinned_revision
-from tests.parity import prompt_set
+from tests.parity import prompt_set, thresholds
 from tests.parity.candidates import HFCandidate, HFConfig, backend_tag, environment
 from tests.parity.logits import LogitSummary, aggregate, compare
 
@@ -62,9 +62,15 @@ def summaries(cfg: HFConfig, seqs: list[list[int]]) -> list[LogitSummary]:
         torch.cuda.empty_cache()
 
 
-def metrics(keys: list[str], ref: list[LogitSummary], got: list[LogitSummary]) -> dict:
+def metrics(
+    keys: list[str], ref: list[LogitSummary], got: list[LogitSummary], groups: dict[str, str]
+) -> dict:
     per = {k: compare(r, g) for k, r, g in zip(keys, ref, got, strict=True)}
-    return {"aggregate": aggregate(per), "per_prompt": per}
+    return {
+        "aggregate": aggregate(per),
+        "groups": thresholds.group_aggregates(per, groups),  # what the thresholds check
+        "per_prompt": per,
+    }
 
 
 def run(model: str, revision: str | None, out_path: Path, dtypes: list[str]) -> dict:
@@ -72,7 +78,9 @@ def run(model: str, revision: str | None, out_path: Path, dtypes: list[str]) -> 
     from transformers import AutoTokenizer
 
     tok = AutoTokenizer.from_pretrained(model, revision=revision)
-    ids = prompt_set.tokenize(prompt_set.load("v1"), tok)
+    prompts = prompt_set.load("v1")
+    ids = prompt_set.tokenize(prompts, tok)
+    groups = thresholds.prompt_groups(prompts)
     keys, seqs = list(ids), list(ids.values())
     result: dict = {
         "model": model,
@@ -84,7 +92,7 @@ def run(model: str, revision: str | None, out_path: Path, dtypes: list[str]) -> 
     out_path.parent.mkdir(parents=True, exist_ok=True)
 
     def record(label: str, ref: list[LogitSummary], got: list[LogitSummary]) -> None:
-        result["variants"][label] = metrics(keys, ref, got)
+        result["variants"][label] = metrics(keys, ref, got, groups)
         print(label, json.dumps(result["variants"][label]["aggregate"]), flush=True)
         out_path.write_text(json.dumps(result, indent=2))
 

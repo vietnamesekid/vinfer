@@ -1,23 +1,22 @@
 """Parity on real weights (GPU).
 
 HF against the same HF configuration must be bit-identical; this checks the tooling itself.
-The vinfer engine is compared here too once it exists, with ``thresholds.toml``.
+The vinfer engine is compared here too once it exists, with ``thresholds.check``.
 """
 
 from __future__ import annotations
 
 import hashlib
 import json
-import tomllib
 from pathlib import Path
 
 import pytest
 
-from tests.parity import prompt_set
+from tests.parity import prompt_set, thresholds
 from tests.parity.candidates import HFCandidate, HFConfig, environment
 from tests.parity.logits import LogitSummary, aggregate, compare
 
-THRESHOLDS = tomllib.loads((Path(__file__).parent / "thresholds.toml").read_text())
+THRESHOLDS = thresholds.load()
 
 
 def reference_dir(env: dict, prompt_version: str = "v1") -> Path:
@@ -56,14 +55,16 @@ def test_hf_self_parity(parity_env):
     from transformers import AutoTokenizer
 
     tok = AutoTokenizer.from_pretrained(parity_env["model"], revision=parity_env["revision"])
-    ids = prompt_set.tokenize(prompt_set.load("v1"), tok)
+    prompts = prompt_set.load("v1")
+    ids = prompt_set.tokenize(prompts, tok)
     # One model on the GPU: it computes the reference on a cache miss, then the candidate.
     hf = HFCandidate(HFConfig(parity_env["model"], parity_env["revision"], parity_env["dtype"]))
     ref = reference_summaries(parity_env, ids, hf)
     got = dict(zip(ids, hf.summaries(list(ids.values())), strict=True))
     per = {k: compare(ref[k], got[k]) for k in ids}
     agg = aggregate(per)
-    print(json.dumps(agg, indent=2))
+    groups = thresholds.group_aggregates(per, thresholds.prompt_groups(prompts))
+    print(json.dumps({"all": agg, **groups}, indent=2))
     # Same config, same machine: anything but bit-identical means the tooling is broken
     # (or HF is non-deterministic, which the noise-floor report must then say).
     assert agg["argmax_mismatch"] == THRESHOLDS["exact_math"]["argmax_mismatch"]

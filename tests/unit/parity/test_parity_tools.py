@@ -121,6 +121,8 @@ def test_noise_floor_runs_end_to_end(tiny_model, tmp_path, monkeypatch):
     res = noise_floor.run("tiny", None, out, ["bfloat16"])
     assert json.loads(out.read_text())["variants"].keys() == res["variants"].keys()
     assert res["variants"]["bfloat16-vs-fp32"]["aggregate"]["prompts"] == 50
+    groups = res["variants"]["bfloat16-vs-fp32"]["groups"]
+    assert groups["short"]["prompts"] == 46 and groups["long"]["prompts"] == 4
     assert res["variants"]["bfloat16:repeat"]["aggregate"]["bitwise_equal"]
 
 

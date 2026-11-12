@@ -1,18 +1,29 @@
-# Parity thresholds. Per-dtype values are set from the measured HF noise floor (`make noise`).
-# Never loosen a threshold to make a change pass.
-#
-# While status = "undecided", only comparisons that must be exact are supported: HF against the
-# same HF configuration. Comparisons with a tolerance are skipped until the values below exist.
+# Parity thresholds, set 2026-11-12 from the HF noise floor in experiments/EXP-000-noise-floor/.
+# Applied by tests/parity/thresholds.py.
+# Never loosen a threshold to make a change pass. A change that needs more room is an
+# experiment with its own report, and the human decides.
 
-status = "undecided"  # becomes "decided" once the per-dtype values are filled in
+status = "decided"
 
-# Changes that do not alter the math (cache, batching, scheduling): argmax must match on every
-# position of the parity prompt set.
+# Same computation shape (same batch, same chunking), optimization flag on vs off: logits must be
+# bit-identical. Also HF against the same HF configuration (test_hf_self_parity).
 [exact_math]
 argmax_mismatch = 0
 
-# Per-dtype logit thresholds for the vinfer forward pass against HF. Not set yet.
-# [bfloat16]
-# max_abs_logit = ?
-# kl_max = ?
-# argmax_mismatch_rate = ?
+# Two uses, same limits:
+# - vinfer bf16 against HF bf16 (bs=1, SDPA, flash-linear-attention + causal-conv1d);
+# - vinfer with a flag that changes the computation shape (continuous batching, prefix cache,
+#   chunked prefill) against vinfer at bs=1 with the flag off.
+# About 2x the worst same-dtype bf16 noise in EXP-000, per prompt group (batch size, order,
+# padding, attention implementation; all three GDN kernel sets). bf16 vs fp32 is not noise
+# against a bf16 reference, so it is left out (it reaches 1.50% on the long group).
+[bfloat16]
+kl_mean = 1.1e-3     # per group, mean over prompts of each prompt's mean KL. Worst: 5.8e-4 (long)
+kl_max = 0.1         # per group, worst position of the worst prompt. Worst: 4.9e-2 (short)
+max_abs_logit = 2.4  # reported, not checked: about 1 in every noise variant, separates little
+
+[bfloat16.argmax_mismatch_rate]
+short = 0.02   # 46 prompts, 1,308 positions. Worst noise: 0.99%
+long = 0.022   # 4 documents, 47,220 positions. Worst noise: 1.07%
+
+# float16: not set. Qwen3.5 ships bf16 weights and the engine has no fp16 path.
