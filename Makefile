@@ -18,7 +18,7 @@ WORKLOADS ?= W1-v1 W2-v1 W3-v1 W4-v1
 # Every extra: dev tools, harness (bench), parity (transformers), workload generation.
 # A plain `uv sync --extra dev` would remove what the tests and the harness import.
 install:
-	uv sync --locked --extra dev --extra bench --extra parity --extra workloads
+	uv sync --locked --extra dev --extra bench --extra parity --extra workloads --extra server
 
 lint:
 	uv run ruff check .

@@ -112,3 +112,30 @@ def save_as_multimodal_checkpoint(model, path: Path) -> Path:
     tensors["mtp.fc.weight"] = torch.zeros(32, 64)
     save_file(tensors, str(path / "model.safetensors"))
     return path
+
+
+CHAT_TEMPLATE = (
+    "{% for m in messages %}<|im_start|> {{ m['role'] }} {{ m['content'] }} <|im_end|> "
+    "{% endfor %}{% if add_generation_prompt %}<|im_start|> assistant{% endif %}"
+)
+
+
+def save_tiny_tokenizer(path: Path, vocab_size: int = 96) -> Path:
+    """A word-level tokenizer with ``vocab_size`` entries (``<|im_end|>`` = eos = id 2) and a
+    chat template, saved next to a tiny checkpoint so the whole directory serves like a real
+    model."""
+    from tokenizers import Tokenizer
+    from tokenizers.models import WordLevel
+    from tokenizers.pre_tokenizers import WhitespaceSplit
+    from transformers import PreTrainedTokenizerFast
+
+    words = ["<unk>", "<|im_start|>", "<|im_end|>", "user", "assistant", "system"]
+    words += [f"w{i}" for i in range(vocab_size - len(words))]
+    raw = Tokenizer(WordLevel({w: i for i, w in enumerate(words)}, unk_token="<unk>"))
+    raw.pre_tokenizer = WhitespaceSplit()
+    tok = PreTrainedTokenizerFast(
+        tokenizer_object=raw, unk_token="<unk>", eos_token="<|im_end|>", chat_template=CHAT_TEMPLATE
+    )
+    tok.add_special_tokens({"additional_special_tokens": ["<|im_start|>"]})
+    tok.save_pretrained(path)
+    return path

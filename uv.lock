@@ -2321,6 +2321,7 @@ parity = [
 ]
 server = [
     { name = "fastapi" },
+    { name = "transformers" },
     { name = "uvicorn" },
 ]
 workloads = [
@@ -2344,6 +2345,7 @@ requires-dist = [
     { name = "safetensors", specifier = ">=0.4" },
     { name = "torch", specifier = ">=2.5" },
     { name = "transformers", marker = "extra == 'parity'", specifier = ">=4.51" },
+    { name = "transformers", marker = "extra == 'server'", specifier = ">=4.51" },
     { name = "transformers", marker = "extra == 'workloads'", specifier = ">=4.51" },
     { name = "uvicorn", marker = "extra == 'server'", specifier = ">=0.32" },
 ]

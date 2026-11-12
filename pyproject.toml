@@ -19,7 +19,8 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-server = ["fastapi>=0.115", "uvicorn>=0.32"]
+# transformers: tokenizer and chat template only (ruff bans its models in src/).
+server = ["fastapi>=0.115", "uvicorn>=0.32", "transformers>=4.51"]
 dev = [
     "pytest>=8.3",
     "ruff>=0.8",
