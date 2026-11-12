@@ -13,6 +13,7 @@ through the same ``summarize`` for the comparison to be fair.
 
 from __future__ import annotations
 
+import math
 from collections.abc import Iterable
 from dataclasses import dataclass, fields
 from pathlib import Path
@@ -101,8 +102,14 @@ def compare(ref: LogitSummary, cand: LogitSummary) -> dict[str, float]:
     }
 
 
+def _max(values: Iterable[float]) -> float:
+    """``max`` that returns NaN if any value is NaN (the builtin may skip it, by order)."""
+    values = list(values)
+    return math.nan if any(math.isnan(v) for v in values) else max(values)
+
+
 def aggregate(per_prompt: dict[str, dict[str, float]]) -> dict[str, float]:
-    """Worst case over prompts (max) for diffs, totals for counts."""
+    """Worst case over prompts (max) for diffs, totals for counts. NaN anywhere stays NaN."""
     vals = list(per_prompt.values())
     pos = sum(v["positions"] for v in vals)
     mis = sum(v["argmax_mismatch"] for v in vals)
@@ -111,9 +118,9 @@ def aggregate(per_prompt: dict[str, dict[str, float]]) -> dict[str, float]:
         "positions": pos,
         "argmax_mismatch": mis,
         "argmax_mismatch_rate": mis / pos if pos else 0.0,
-        "max_abs_logit": max(v["max_abs_logit"] for v in vals),
+        "max_abs_logit": _max(v["max_abs_logit"] for v in vals),
         "mean_abs_logit": sum(v["mean_abs_logit"] for v in vals) / len(vals),
         "kl_mean": sum(v["kl_mean"] for v in vals) / len(vals),
-        "kl_max": max(v["kl_max"] for v in vals),
+        "kl_max": _max(v["kl_max"] for v in vals),
         "bitwise_equal": all(v["bitwise_equal"] for v in vals),
     }
