@@ -33,6 +33,11 @@ class SerialScheduler:
         self.decode = decode
         self._worker = ThreadPoolExecutor(max_workers=1, thread_name_prefix="vinfer-gen")
 
+    @property
+    def max_seq_len(self) -> int:
+        """Positions available to one request (prompt + generated tokens - 1)."""
+        return self.pool.max_seq_len
+
     async def stream(self, prompt_ids: list[int], params: SamplingParams) -> AsyncIterator[Step]:
         loop = asyncio.get_running_loop()
         queue: asyncio.Queue = asyncio.Queue()

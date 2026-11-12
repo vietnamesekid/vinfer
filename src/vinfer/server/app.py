@@ -19,16 +19,23 @@ from typing import Any
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import JSONResponse, StreamingResponse
 
-from vinfer.runtime import SamplingParams
+from vinfer.runtime import SamplingParams, check_request
 from vinfer.runtime.tokenizer import Tokenizer
 from vinfer.scheduler.serial import SerialScheduler
 
 
-def sampling_params(body: dict[str, Any]) -> SamplingParams:
+def sampling_params(body: dict[str, Any], default_max_tokens: int) -> SamplingParams:
+    """``default_max_tokens`` applies when the body gives neither ``max_completion_tokens`` nor
+    ``max_tokens`` (the rest of the context, as vLLM does). An explicit value is used as given,
+    so 0 is rejected rather than replaced."""
     if body.get("n", 1) != 1:
         raise ValueError("only n = 1 is supported")
     stop = body.get("stop") or ()
-    max_tokens = body.get("max_completion_tokens") or body.get("max_tokens") or 16
+    max_tokens = body.get("max_completion_tokens")
+    if max_tokens is None:
+        max_tokens = body.get("max_tokens")
+    if max_tokens is None:
+        max_tokens = default_max_tokens
     return SamplingParams(
         max_tokens=int(max_tokens),
         temperature=float(body.get("temperature", 1.0)),
@@ -55,10 +62,13 @@ def create_app(scheduler: SerialScheduler, tokenizer: Tokenizer, model_name: str
     @app.post("/v1/chat/completions")
     async def chat(body: dict[str, Any]):
         try:
-            params = sampling_params(body)
             prompt = tokenizer.chat_ids(
                 body["messages"], **(body.get("chat_template_kwargs") or {})
             )
+            # Everything that can make the request fail is checked here, before any response
+            # starts: errors are a 400, never a 500 or an error event inside a 200 stream.
+            params = sampling_params(body, max(1, scheduler.max_seq_len - len(prompt) + 1))
+            check_request(len(prompt), params, scheduler.max_seq_len)
         except (KeyError, TypeError, ValueError) as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
         rid = f"chatcmpl-{uuid.uuid4().hex}"

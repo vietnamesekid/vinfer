@@ -36,13 +36,13 @@ def test_shapes_and_dtypes():
     assert pool.ssm_state(0, 0).shape == (3, 5, 2) and pool.ssm_state(0, 0).dtype == torch.float32
 
 
-def test_a_slot_is_zero_when_allocated_again():
+def test_recurrent_state_is_zero_when_a_slot_is_allocated_again():
     pool = _pool(slots=1)
     slot = pool.alloc()
     _fill(pool, slot, 3.0)
     pool.free(slot)
     assert pool.alloc() == slot
-    assert all(not t.any() for t in _all(pool, slot))
+    assert not pool.conv_state(0, slot).any() and not pool.ssm_state(0, slot).any()
 
 
 def test_views_write_into_the_pool_and_slots_are_isolated():

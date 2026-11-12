@@ -27,6 +27,11 @@ class Step:
 class _TextStream:
     """Turns a growing token list into text deltas and finds stop strings.
 
+    Detokenizes incrementally: each step decodes only the tokens since the last emitted
+    boundary (``prefix .. end``) and compares with the same window without the new tokens, as
+    vLLM does, so the cost per token does not grow with the output length. Keeping the previous
+    tokens in the window preserves context-dependent spacing.
+
     Holds back text that might still become a stop string, and an unfinished UTF-8 sequence
     (decoded as U+FFFD), so streamed text never has to be taken back.
     """
@@ -36,13 +41,24 @@ class _TextStream:
         self.stops = tuple(s for s in stops if s)
         self.hold = max((len(s) for s in self.stops), default=1) - 1
         self.tokens: list[int] = []
+        self.prefix = 0  # tokens[prefix:read] are already in self.text
+        self.read = 0
+        self.text = ""  # complete text decoded so far
         self.sent = 0  # characters already emitted
+
+    def _decode_new(self, final: bool) -> None:
+        before = self.decode(self.tokens[self.prefix : self.read])
+        after = self.decode(self.tokens[self.prefix :])
+        if len(after) > len(before) and (final or not after.endswith("\ufffd")):
+            self.text += after[len(before) :]
+            self.prefix, self.read = self.read, len(self.tokens)
 
     def push(self, token_id: int | None) -> tuple[str, bool]:
         """Add a token (``None``: no token, flush). Returns ``(delta, hit_stop)``."""
         if token_id is not None:
             self.tokens.append(token_id)
-        text = self.decode(self.tokens)
+        self._decode_new(final=token_id is None)
+        text = self.text
         start = max(0, self.sent - self.hold)
         hits = [i for i in (text.find(s, start) for s in self.stops) if i >= 0]
         if hits:
@@ -54,8 +70,6 @@ class _TextStream:
             delta, self.sent = text[self.sent :], len(text)
             return delta, False
         safe = len(text) - self.hold
-        if text.endswith("�"):
-            safe = min(safe, len(text) - 1)
         if safe <= self.sent:
             return "", False
         delta, self.sent = text[self.sent : safe], safe
@@ -64,6 +78,22 @@ class _TextStream:
     def flush(self) -> str:
         """Everything held back, up to a stop string if one is found."""
         return self.push(None)[0]
+
+
+def check_request(prompt_len: int, params: SamplingParams, max_seq_len: int) -> None:
+    """Raise ``ValueError`` if the request cannot run in a slot of ``max_seq_len`` positions.
+
+    The last sampled token is never fed back, so ``prompt + max_tokens - 1`` positions suffice.
+    Callers validate before accepting a request; ``generate`` checks again.
+    """
+    if prompt_len == 0:
+        raise ValueError("empty prompt")
+    needed = prompt_len + params.max_tokens - 1
+    if needed > max_seq_len:
+        raise ValueError(
+            f"prompt ({prompt_len}) + max_tokens ({params.max_tokens}) needs {needed} positions, "
+            f"more than max_seq_len ({max_seq_len})"
+        )
 
 
 def generate(
@@ -79,13 +109,7 @@ def generate(
     ``decode`` turns token ids into text; without it, ``Step.text`` is empty and stop strings
     are not checked.
     """
-    if not prompt_ids:
-        raise ValueError("empty prompt")
-    if len(prompt_ids) + params.max_tokens > pool.max_seq_len:
-        raise ValueError(
-            f"prompt ({len(prompt_ids)}) + max_tokens ({params.max_tokens}) exceeds "
-            f"max_seq_len ({pool.max_seq_len})"
-        )
+    check_request(len(prompt_ids), params, pool.max_seq_len)
     seed = params.seed if params.seed is not None else random.getrandbits(63)
     stream = _TextStream(decode, params.stop) if decode else None
     stop_ids = set(params.stop_token_ids) | (set() if params.ignore_eos else set(eos_token_ids))

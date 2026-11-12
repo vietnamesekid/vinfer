@@ -72,4 +72,6 @@ def sample(logits: torch.Tensor, params: SamplingParams, seed: int, position: in
     probs = filtered_probs(logits, params)
     gen = torch.Generator(device=probs.device).manual_seed(position_seed(seed, position))
     noise = torch.empty_like(probs).exponential_(generator=gen)
+    # A draw of exactly 0 would turn a filtered token (p = 0) into 0/0 = NaN, which argmax picks.
+    noise.clamp_min_(torch.finfo(noise.dtype).tiny)
     return int(torch.argmax(probs / noise))

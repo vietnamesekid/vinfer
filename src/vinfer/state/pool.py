@@ -9,8 +9,8 @@ Two kinds of state, as the hybrid Qwen models need (docs/architecture.md):
   ``ssm_dtype`` (fp32 for Qwen3.5, from ``mamba_ssm_dtype``).
 
 The pool knows slots, not requests or token counts: which positions of a slot are filled is the
-caller's business. A slot is zeroed when allocated, so a sequence never starts from a previous
-sequence's recurrent state.
+caller's business. A slot's recurrent state is zeroed when allocated, so a sequence never starts
+from a previous sequence's state; its KV positions are overwritten before they are read.
 """
 
 from __future__ import annotations
@@ -68,10 +68,15 @@ class StatePool:
         self._free = list(range(num_slots - 1, -1, -1))  # pop() hands out slot 0 first
 
     def alloc(self) -> int:
+        """A free slot with zeroed recurrent state. Its KV cache is not cleared: attention only
+        reads positions a sequence has written, and zeroing ``max_seq_len`` positions of every
+        attention layer would cost each request time proportional to the capacity."""
         if not self._free:
             raise RuntimeError(f"no free slot (pool has {self.num_slots})")
         slot = self._free.pop()
-        self.reset(slot)
+        for buffers in (self._conv, self._ssm):
+            for t in buffers.values():
+                t[slot].zero_()
         return slot
 
     def free(self, slot: int) -> None:

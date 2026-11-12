@@ -92,9 +92,12 @@ def test_sampling_is_reproducible_with_a_seed(models):
 
 def test_prompt_plus_max_tokens_must_fit(models):
     _, ours = models
+    # 9 prompt tokens + 4 generated: the last one is never fed back, so 12 positions suffice.
     pool = ours.new_state_pool(num_slots=1, max_seq_len=12)
+    params = SamplingParams(max_tokens=4, temperature=0, ignore_eos=True)
+    assert len(list(generate(ours, pool, PROMPT, params))) == 4
     with pytest.raises(ValueError, match="max_seq_len"):
-        next(generate(ours, pool, PROMPT, SamplingParams(max_tokens=4)))
+        next(generate(ours, pool, PROMPT, SamplingParams(max_tokens=5)))
 
 
 # --- text stream ---------------------------------------------------------------------------------
