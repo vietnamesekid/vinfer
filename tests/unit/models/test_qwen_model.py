@@ -13,7 +13,7 @@ import torch
 from safetensors.torch import load_file, save_file
 
 from tests.unit.models import fixtures
-from vinfer.models.qwen import QwenConfig, load_qwen
+from vinfer.models.qwen import QwenConfig
 
 pytest.importorskip("transformers")
 
@@ -33,9 +33,7 @@ def _hf_logits(hf, ids: torch.Tensor) -> torch.Tensor:
 @pytest.fixture(scope="module", params=list(BUILDERS))
 def pair(request, tmp_path_factory):
     hf = BUILDERS[request.param]()
-    ours = load_qwen(
-        fixtures.save(hf, tmp_path_factory.mktemp(request.param)), torch.float32, "cpu"
-    )
+    ours = fixtures.load(fixtures.save(hf, tmp_path_factory.mktemp(request.param)))
     return request.param, hf, ours
 
 
@@ -86,7 +84,7 @@ def test_a_reused_slot_starts_clean(pair):
 
 def test_multimodal_checkpoint_layout_loads_and_matches(tmp_path):
     hf = fixtures.hf_qwen3_5(seed=5)
-    ours = load_qwen(fixtures.save_as_multimodal_checkpoint(hf, tmp_path), torch.float32, "cpu")
+    ours = fixtures.load(fixtures.save_as_multimodal_checkpoint(hf, tmp_path))
     ids = _ids(33, seed=5)
     pool = ours.new_state_pool(num_slots=1, max_seq_len=64)
     logits = ours.logits(ours.forward_hidden(ids, 0, pool.alloc(), pool))
@@ -100,7 +98,7 @@ def test_fp32_tensors_of_a_bf16_checkpoint_stay_fp32(tmp_path):
     keep = ("linear_attn.A_log", "linear_attn.norm.weight")
     tensors = {k: v if k.endswith(keep) else v.bfloat16() for k, v in tensors.items()}
     save_file(tensors, str(path / "model.safetensors"))
-    ours = load_qwen(path, torch.bfloat16, "cpu")
+    ours = fixtures.load(path, torch.bfloat16)
     layer = ours.layers[0].linear_attn
     assert layer.A_log.dtype == torch.float32 and layer.norm.weight.dtype == torch.float32
     assert (
@@ -114,11 +112,11 @@ def test_tied_lm_head_in_checkpoint_must_equal_the_embedding(tmp_path):
     tensors = load_file(str(path / "model.safetensors"))
     tensors["lm_head.weight"] = tensors["model.embed_tokens.weight"].clone()
     save_file(tensors, str(path / "model.safetensors"))
-    load_qwen(path, torch.float32, "cpu")  # equal: fine (Qwen3-0.6B stores both)
+    fixtures.load(path)  # equal: fine (Qwen3-0.6B stores both)
     tensors["lm_head.weight"][0, 0] += 1
     save_file(tensors, str(path / "model.safetensors"))
     with pytest.raises(ValueError, match="lm_head"):
-        load_qwen(path, torch.float32, "cpu")
+        fixtures.load(path)
 
 
 def test_missing_and_misshaped_tensors_are_errors(tmp_path):
@@ -128,19 +126,17 @@ def test_missing_and_misshaped_tensors_are_errors(tmp_path):
     name = "model.layers.0.self_attn.q_norm.weight"
     save_file({k: v for k, v in tensors.items() if k != name}, str(path / "model.safetensors"))
     with pytest.raises(ValueError, match="not in the checkpoint"):
-        load_qwen(path, torch.float32, "cpu")
+        fixtures.load(path)
     tensors[name] = torch.zeros(3)
     save_file(tensors, str(path / "model.safetensors"))
     with pytest.raises(ValueError, match="shape"):
-        load_qwen(path, torch.float32, "cpu")
+        fixtures.load(path)
 
 
 def test_kv_capacity_is_enforced(pair):
     _, _, ours = pair
-    if "full_attention" not in ours.cfg.layer_types:
-        pytest.skip("no attention layer")
     pool = ours.new_state_pool(num_slots=1, max_seq_len=8)
-    with pytest.raises(ValueError, match="KV capacity"):
+    with pytest.raises(ValueError, match="slot capacity"):
         ours.forward_hidden(_ids(9), 0, pool.alloc(), pool)
 
 

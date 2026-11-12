@@ -17,6 +17,7 @@ import torch
 from vinfer.config import KernelConfig
 from vinfer.kernels.attention import ATTENTION, AttentionBackend
 from vinfer.kernels.gdn import GDN, GDNBackend
+from vinfer.kernels.registry import BackendContext
 
 
 @dataclass(frozen=True)
@@ -26,10 +27,11 @@ class Kernels:
 
 
 def resolve_kernels(cfg: KernelConfig, device: torch.device, dtype: torch.dtype) -> Kernels:
+    ctx = BackendContext(torch.device(device), dtype)
     return Kernels(
-        attention=ATTENTION.resolve(cfg.attention_backend, device, dtype),
-        gdn=GDN.resolve(cfg.gdn_backend, device, dtype),
+        attention=ATTENTION.resolve(cfg.attention_backend, ctx),
+        gdn=GDN.resolve(cfg.gdn_backend, ctx),
     )
 
 
-__all__ = ["Kernels", "resolve_kernels"]
+__all__ = ["BackendContext", "Kernels", "resolve_kernels"]

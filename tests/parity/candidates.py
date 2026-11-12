@@ -16,6 +16,7 @@ from typing import Literal, Protocol
 import torch
 
 from tests.parity.logits import LogitSummary, full_positions, summarize
+from vinfer.config import KernelConfig
 
 DTYPES = {"float32": torch.float32, "bfloat16": torch.bfloat16, "float16": torch.float16}
 
@@ -162,16 +163,22 @@ class VinferCandidate:
         path: str,
         dtype: str = "bfloat16",
         device: str = "cuda",
+        kernels: KernelConfig | None = None,
         prefill_chunk: int = 2048,
         lm_head_chunk: int = 1024,
         model=None,
     ) -> None:
+        """``kernels``: the backends to check (the reference ones if ``None``); recorded in
+        ``name`` so a parity result says which implementation it covers."""
         from vinfer.models import load_model
 
-        self.model = model if model is not None else load_model(path, DTYPES[dtype], device)
+        kernels = kernels or KernelConfig()
+        if model is None:
+            model = load_model(path, DTYPES[dtype], device, kernels)
+        self.model = model
         self.prefill_chunk = prefill_chunk
         self.lm_head_chunk = lm_head_chunk
-        self.name = f"vinfer[{dtype},prefill_chunk={prefill_chunk}]"
+        self.name = f"vinfer[{dtype},{kernels.describe()},prefill_chunk={prefill_chunk}]"
 
     def hidden(self, ids: list[int], layer_outputs: list | None = None) -> torch.Tensor:
         model = self.model

@@ -36,6 +36,7 @@ import torch
 import torch.nn.functional as F
 
 from vinfer.kernels.gdn.base import GDN
+from vinfer.kernels.registry import BackendContext
 
 
 def gdn_gating(
@@ -203,6 +204,9 @@ def causal_conv1d(
 class ReferenceGDN:
     """``GDNBackend`` over the functions above: recurrent form for one token, chunked form for
     more; any device/dtype. Works on copies and writes the new state back (not fused)."""
+
+    def __init__(self, ctx: BackendContext) -> None:
+        self.ctx = ctx
 
     def conv(self, x: torch.Tensor, weight: torch.Tensor, conv_state: torch.Tensor) -> torch.Tensor:
         y, new_state = causal_conv1d(x[None], weight, conv_state[None])

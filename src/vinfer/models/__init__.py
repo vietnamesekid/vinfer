@@ -3,7 +3,8 @@
 Must not: hold state between calls (state lives in the state manager).
 
 ``load_model`` picks the loader from the checkpoint's ``model_type``; adding a model family is
-one entry in ``LOADERS``.
+one entry in ``LOADERS``. It resolves the kernel backends once, for every family, so a loader
+receives ready ``Kernels`` and never chooses or defaults them itself.
 """
 
 from __future__ import annotations
@@ -15,14 +16,13 @@ from pathlib import Path
 import torch
 
 from vinfer.config import KernelConfig
+from vinfer.kernels import Kernels, resolve_kernels
 from vinfer.models.base import CausalLM
 
-Loader = Callable[[Path, torch.dtype, torch.device, KernelConfig | None], CausalLM]
+Loader = Callable[[Path, torch.dtype, torch.device, Kernels], CausalLM]
 
 
-def _qwen(
-    path: Path, dtype: torch.dtype, device: torch.device, kernels: KernelConfig | None
-) -> CausalLM:
+def _qwen(path: Path, dtype: torch.dtype, device: torch.device, kernels: Kernels) -> CausalLM:
     from vinfer.models.qwen import load_qwen
 
     return load_qwen(path, dtype, device, kernels)
@@ -35,14 +35,16 @@ def load_model(
     path: str | Path,
     dtype: torch.dtype,
     device: str | torch.device,
-    kernels: KernelConfig | None = None,
+    kernels: KernelConfig,
 ) -> CausalLM:
-    path = Path(path)
+    """Load the checkpoint at ``path`` with the kernel backends ``kernels`` names, which fail
+    here if they cannot run on ``device`` in ``dtype``."""
+    path, device = Path(path), torch.device(device)
     raw = json.loads((path / "config.json").read_text())
     model_type = raw.get("model_type") or raw.get("text_config", {}).get("model_type")
     if model_type not in LOADERS:
         raise ValueError(f"unsupported model_type {model_type!r}; supported: {sorted(LOADERS)}")
-    return LOADERS[model_type](path, dtype, torch.device(device), kernels)
+    return LOADERS[model_type](path, dtype, device, resolve_kernels(kernels, device, dtype))
 
 
 __all__ = ["LOADERS", "CausalLM", "load_model"]

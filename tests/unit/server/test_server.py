@@ -12,12 +12,10 @@ import threading
 import time
 
 import pytest
-import torch
 
 from bench.harness.http_client import stream_chat_completion
 from bench.harness.workload import Request
 from tests.unit.models import fixtures
-from vinfer.models.qwen import load_qwen
 from vinfer.runtime.tokenizer import Tokenizer
 from vinfer.scheduler.serial import SerialScheduler
 from vinfer.server.app import create_app
@@ -39,7 +37,7 @@ def _free_port() -> int:
 def server(tmp_path_factory):
     path = fixtures.save(fixtures.hf_qwen3_5(), tmp_path_factory.mktemp("srv"))
     fixtures.save_tiny_tokenizer(path)
-    model = load_qwen(path, torch.float32, "cpu")
+    model = fixtures.load(path)
     tokenizer = Tokenizer(path)
     pool = model.new_state_pool(num_slots=1, max_seq_len=128)
     scheduler = SerialScheduler(model, pool, tokenizer.eos_token_ids, tokenizer.decode)

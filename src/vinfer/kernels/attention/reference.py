@@ -7,6 +7,7 @@ import math
 import torch
 
 from vinfer.kernels.attention.base import ATTENTION
+from vinfer.kernels.registry import BackendContext
 
 
 def attention_reference(
@@ -54,6 +55,9 @@ def attention_reference(
 @ATTENTION.register("reference")
 class ReferenceAttention:
     """``AttentionBackend`` over ``attention_reference``: contiguous cache, any device/dtype."""
+
+    def __init__(self, ctx: BackendContext) -> None:
+        self.ctx = ctx
 
     def forward(
         self,

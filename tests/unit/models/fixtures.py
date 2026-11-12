@@ -139,3 +139,12 @@ def save_tiny_tokenizer(path: Path, vocab_size: int = 96) -> Path:
     tok.add_special_tokens({"additional_special_tokens": ["<|im_start|>"]})
     tok.save_pretrained(path)
     return path
+
+
+def load(path: Path, dtype: torch.dtype = torch.float32, kernels=None):
+    """Load a tiny checkpoint on CPU the way the engine does (``load_model``), reference kernels
+    unless ``kernels`` (a ``KernelConfig``) says otherwise."""
+    from vinfer.config import KernelConfig
+    from vinfer.models import load_model
+
+    return load_model(path, dtype, "cpu", kernels or KernelConfig())

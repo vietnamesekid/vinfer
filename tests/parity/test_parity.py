@@ -117,7 +117,8 @@ def vinfer_run(parity_env):
         revision=parity_env["revision"],
         allow_patterns=["*.json", "*.safetensors"],
     )
-    vinfer = VinferCandidate(path, parity_env["dtype"])
+    vinfer = VinferCandidate(path, parity_env["dtype"], kernels=parity_env["kernels"])
+    print("candidate:", vinfer.name)
     sums = dict(zip(ids, vinfer.summaries(list(ids.values())), strict=True))
     del vinfer
     _free_gpu()

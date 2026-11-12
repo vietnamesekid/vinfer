@@ -10,10 +10,13 @@ from vinfer.config import KernelConfig
 from vinfer.kernels import resolve_kernels
 from vinfer.kernels.attention import ATTENTION, ReferenceAttention
 from vinfer.kernels.gdn import GDN, ReferenceGDN
-from vinfer.kernels.registry import BackendRegistry
-from vinfer.models.qwen import load_qwen
+from vinfer.kernels.registry import BackendContext, BackendRegistry
 
 CPU, CUDA = torch.device("cpu"), torch.device("cuda")
+
+
+def _ctx(device, dtype=torch.float32):
+    return BackendContext(device, dtype)
 
 
 def _registry():
@@ -21,29 +24,40 @@ def _registry():
 
     @reg.register("anywhere")
     class Anywhere:
-        pass
+        def __init__(self, ctx):
+            self.ctx = ctx
 
     @reg.register("cuda-bf16", devices={"cuda"}, dtypes={torch.bfloat16})
     class CudaOnly:
-        pass
+        def __init__(self, ctx):
+            self.ctx = ctx
+
+    @reg.register("needs-sm90", devices={"cuda"}, supports=lambda ctx: "needs compute 9.0")
+    class Picky:
+        def __init__(self, ctx):
+            self.ctx = ctx
 
     return reg, Anywhere, CudaOnly
 
 
-def test_resolve_returns_a_new_instance_of_the_named_backend():
+def test_resolve_builds_the_backend_with_its_context():
     reg, anywhere, cuda_only = _registry()
-    assert isinstance(reg.resolve("anywhere", CPU, torch.float32), anywhere)
-    assert isinstance(reg.resolve("cuda-bf16", CUDA, torch.bfloat16), cuda_only)
+    backend = reg.resolve("anywhere", _ctx(CPU))
+    assert isinstance(backend, anywhere) and backend.ctx == _ctx(CPU)
+    assert isinstance(reg.resolve("cuda-bf16", _ctx(CUDA, torch.bfloat16)), cuda_only)
 
 
-def test_unsupported_device_dtype_or_name_fails_instead_of_falling_back():
+def test_unsupported_context_or_name_fails_instead_of_falling_back():
     reg, _, _ = _registry()
     with pytest.raises(ValueError, match="does not run on cpu"):
-        reg.resolve("cuda-bf16", CPU, torch.bfloat16)
+        reg.resolve("cuda-bf16", _ctx(CPU, torch.bfloat16))
     with pytest.raises(ValueError, match=r"does not support torch\.float32"):
-        reg.resolve("cuda-bf16", CUDA, torch.float32)
-    with pytest.raises(ValueError, match="available: \\['anywhere', 'cuda-bf16'\\]"):
-        reg.resolve("missing", CPU, torch.float32)
+        reg.resolve("cuda-bf16", _ctx(CUDA))
+    with pytest.raises(ValueError, match=r"needs compute 9\.0"):
+        reg.resolve("needs-sm90", _ctx(CUDA))
+    with pytest.raises(ValueError, match="available: \\['anywhere', 'cuda-bf16', 'needs-sm90'\\]"):
+        reg.resolve("missing", _ctx(CPU))
+    assert reg.unsupported("anywhere", _ctx(CPU)) is None
 
 
 def test_a_name_registers_once():
@@ -56,6 +70,13 @@ def test_default_kernel_config_resolves_to_the_references():
     kernels = resolve_kernels(KernelConfig(), CPU, torch.float32)
     assert isinstance(kernels.attention, ReferenceAttention)
     assert isinstance(kernels.gdn, ReferenceGDN)
+
+
+def test_load_model_resolves_kernels_and_fails_fast(tmp_path):
+    pytest.importorskip("transformers")
+    path = fixtures.save(fixtures.hf_qwen3(), tmp_path)
+    with pytest.raises(ValueError, match="unknown attention backend 'missing'"):
+        fixtures.load(path, kernels=KernelConfig(attention_backend="missing"))
 
 
 # --- the model goes through the registry ------------------------------------------------------
@@ -87,12 +108,9 @@ if "spy-test" not in ATTENTION.names():
 def test_model_calls_the_configured_backends(tmp_path):
     pytest.importorskip("transformers")
     path = fixtures.save(fixtures.hf_qwen3_5(), tmp_path)
-    reference = load_qwen(path, torch.float32, "cpu")
-    spied = load_qwen(
-        path,
-        torch.float32,
-        "cpu",
-        KernelConfig(attention_backend="spy-test", gdn_backend="spy-test"),
+    reference = fixtures.load(path)
+    spied = fixtures.load(
+        path, kernels=KernelConfig(attention_backend="spy-test", gdn_backend="spy-test")
     )
     ids = torch.arange(1, 20)
     outs = []

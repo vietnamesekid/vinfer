@@ -15,6 +15,7 @@ import argparse
 import torch
 
 from tests.parity.candidates import DTYPES, VinferCandidate
+from vinfer.config import KernelConfig
 
 
 def _decoder_layers(hf_model: torch.nn.Module) -> torch.nn.ModuleList:
@@ -71,6 +72,7 @@ def main() -> None:
     p.add_argument("--prompt", required=True, help="prompt id in tests/parity/prompts/v1.jsonl")
     p.add_argument("--dtype", default="bfloat16", choices=list(DTYPES))
     p.add_argument("--device", default="cuda")
+    p.add_argument("--kernels", help="e.g. attention_backend=reference,gdn_backend=reference")
     a = p.parse_args()
 
     from huggingface_hub import snapshot_download
@@ -90,7 +92,7 @@ def main() -> None:
         a.model, revision=revision, dtype=DTYPES[a.dtype], device_map=a.device
     ).eval()
     path = snapshot_download(a.model, revision=revision, allow_patterns=["*.json", "*.safetensors"])
-    ours = load_model(path, DTYPES[a.dtype], a.device)
+    ours = load_model(path, DTYPES[a.dtype], a.device, KernelConfig.from_string(a.kernels))
     print(f"{a.model} @ {revision[:8]}, {a.dtype}, prompt {a.prompt} ({len(ids)} tokens)")
     print(f"{'layer':>7} {'max_abs':>10} {'mean_abs':>10} {'max_rel':>10}")
     for r in layer_diffs(hf, ours, ids):

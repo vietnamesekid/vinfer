@@ -7,7 +7,6 @@ import pytest
 import torch
 
 from tests.unit.models import fixtures
-from vinfer.models.qwen import load_qwen
 from vinfer.runtime import SamplingParams, generate
 from vinfer.runtime.generate import _TextStream
 
@@ -23,9 +22,7 @@ def decode(ids: list[int]) -> str:
 @pytest.fixture(scope="module", params=["qwen3", "qwen3_5"])
 def models(request, tmp_path_factory):
     hf = {"qwen3": fixtures.hf_qwen3, "qwen3_5": fixtures.hf_qwen3_5}[request.param]()
-    ours = load_qwen(
-        fixtures.save(hf, tmp_path_factory.mktemp(request.param)), torch.float32, "cpu"
-    )
+    ours = fixtures.load(fixtures.save(hf, tmp_path_factory.mktemp(request.param)))
     return hf, ours
 
 

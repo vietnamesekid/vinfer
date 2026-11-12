@@ -6,6 +6,7 @@ export
 
 MODEL ?=
 REVISION ?=
+KERNELS ?=
 ENGINE ?= vllm
 CONFIG ?= default
 WORKLOAD ?= W1-v1
@@ -33,7 +34,8 @@ test:
 
 parity:
 	@test -n "$(MODEL)" || (echo "usage: make parity MODEL=<hf-model-id>" && exit 1)
-	VINFER_PARITY_MODEL=$(MODEL) VINFER_PARITY_REVISION=$(REVISION) uv run pytest -m gpu -s tests/parity
+	VINFER_PARITY_MODEL=$(MODEL) VINFER_PARITY_REVISION=$(REVISION) VINFER_PARITY_KERNELS=$(KERNELS) \
+		uv run pytest -m gpu -s tests/parity
 
 # HF logit noise floor (GPU) -> bench/results/raw/noise-floor-<fla|torch>.json
 noise:

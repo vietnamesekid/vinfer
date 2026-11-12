@@ -98,13 +98,7 @@ class Attention(nn.Module):
         k = self.k_norm(self.k_proj(x).view(seq_len, cfg.num_key_value_heads, -1)).transpose(0, 1)
         v = self.v_proj(x).view(seq_len, cfg.num_key_value_heads, -1).transpose(0, 1)
         q, k = apply_rope(q, ctx.cos, ctx.sin), apply_rope(k, ctx.cos, ctx.sin)
-        kv_cache = ctx.pool.kv(self.layer_idx, ctx.slot)
-        if ctx.start + seq_len > kv_cache[0].shape[1]:
-            raise ValueError(
-                f"sequence of {ctx.start + seq_len} tokens exceeds the KV capacity "
-                f"{kv_cache[0].shape[1]}"
-            )
-        out = self.backend.forward(q, k, v, kv_cache, ctx.start)
+        out = self.backend.forward(q, k, v, ctx.pool.kv(self.layer_idx, ctx.slot), ctx.start)
         out = out.transpose(0, 1).reshape(seq_len, -1)
         if gate is not None:
             out = out * torch.sigmoid(gate)
@@ -224,6 +218,7 @@ class QwenModel(CausalLM):
 
         ``layer_outputs``, if given, receives each decoder layer's output (for debugging parity
         layer by layer)."""
+        pool.check_fits(start + input_ids.shape[0])
         x = self.embed_tokens(input_ids)
         positions = torch.arange(start, start + input_ids.shape[0], device=input_ids.device)
         cos, sin = rope_cos_sin(positions, self.inv_freq, x.dtype)

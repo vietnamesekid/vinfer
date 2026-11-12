@@ -5,6 +5,8 @@ them; ``.env.bench`` on a rented machine provides the cache location):
 - ``VINFER_PARITY_REVISION``: HF revision; defaults to the pin in ``bench/models.lock``.
 - ``VINFER_PARITY_CACHE``: where reference summaries are cached (default ``weights/parity``).
 - ``VINFER_PARITY_DTYPE``: reference dtype (default bfloat16).
+- ``VINFER_PARITY_KERNELS``: vinfer kernel backends to check, e.g.
+  ``attention_backend=reference,gdn_backend=reference`` (default: the reference ones).
 """
 
 from __future__ import annotations
@@ -16,6 +18,7 @@ import pytest
 
 from bench.harness.config import pinned_revision
 from bench.harness.environment import load_env_file
+from vinfer.config import KernelConfig
 
 
 @pytest.fixture(scope="session")
@@ -32,4 +35,5 @@ def parity_env() -> dict:
         "revision": revision,
         "dtype": os.environ.get("VINFER_PARITY_DTYPE", "bfloat16"),
         "cache": Path(os.environ.get("VINFER_PARITY_CACHE", "weights/parity")),
+        "kernels": KernelConfig.from_string(os.environ.get("VINFER_PARITY_KERNELS")),
     }

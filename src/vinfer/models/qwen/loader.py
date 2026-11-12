@@ -19,8 +19,7 @@ from pathlib import Path
 import torch
 from safetensors import safe_open
 
-from vinfer.config import KernelConfig
-from vinfer.kernels import resolve_kernels
+from vinfer.kernels import Kernels
 from vinfer.kernels.rope import rope_inv_freq
 from vinfer.models.qwen.config import QwenConfig
 from vinfer.models.qwen.model import QwenModel
@@ -57,15 +56,14 @@ def load_qwen(
     path: str | Path,
     dtype: torch.dtype,
     device: str | torch.device,
-    kernels: KernelConfig | None = None,
+    kernels: Kernels,
 ) -> QwenModel:
     """Load the checkpoint at ``path`` onto ``device``; activations and caches in ``dtype``;
-    hot ops from the backends ``kernels`` names (the reference ones by default)."""
+    hot ops from ``kernels`` (resolved by ``vinfer.models.load_model``)."""
     path, device = Path(path), torch.device(device)
     cfg = QwenConfig.from_hf(json.loads((path / "config.json").read_text()))
-    backends = resolve_kernels(kernels or KernelConfig(), device, dtype)  # fails fast
     with torch.device("meta"):
-        model = QwenModel(cfg, backends, dtype=dtype, device=device)
+        model = QwenModel(cfg, kernels, dtype=dtype, device=device)
     params = dict(model.named_parameters())
     tensors: dict[str, torch.Tensor] = {}
     lm_head: torch.Tensor | None = None

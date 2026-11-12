@@ -11,7 +11,7 @@ default.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, fields
 from typing import Literal
 
 import torch
@@ -27,6 +27,23 @@ class KernelConfig:
     # "reference" = slow, readable implementation used as ground truth.
     attention_backend: Literal["reference"] = "reference"
     gdn_backend: Literal["reference"] = "reference"
+
+    @classmethod
+    def from_string(cls, spec: str | None) -> KernelConfig:
+        """``"attention_backend=x,gdn_backend=y"`` (as on command lines); empty = defaults."""
+        values: dict[str, str] = {}
+        for item in filter(None, (spec or "").split(",")):
+            key, sep, value = item.partition("=")
+            if not sep:
+                raise ValueError(f"expected key=value in kernel spec, got {item!r}")
+            values[key.strip()] = value.strip()
+        known = {f.name for f in fields(cls)}
+        if unknown := set(values) - known:
+            raise ValueError(f"unknown kernel setting(s) {sorted(unknown)}; known: {sorted(known)}")
+        return cls(**values)  # type: ignore[arg-type]
+
+    def describe(self) -> str:
+        return ",".join(f"{f.name}={getattr(self, f.name)}" for f in fields(self))
 
 
 @dataclass(frozen=True)

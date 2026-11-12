@@ -9,10 +9,8 @@ instead of the rest of the context (vLLM's behaviour).
 from __future__ import annotations
 
 import pytest
-import torch
 
 from tests.unit.models import fixtures
-from vinfer.models.qwen import load_qwen
 from vinfer.runtime.tokenizer import Tokenizer
 from vinfer.scheduler.serial import SerialScheduler
 from vinfer.server.app import create_app
@@ -28,7 +26,7 @@ MESSAGES = [{"role": "user", "content": "w1 w2 w3"}]
 def client(tmp_path_factory):
     path = fixtures.save(fixtures.hf_qwen3(), tmp_path_factory.mktemp("val"))
     fixtures.save_tiny_tokenizer(path)
-    model = load_qwen(path, torch.float32, "cpu")
+    model = fixtures.load(path)
     tok = Tokenizer(path)
     scheduler = SerialScheduler(
         model, model.new_state_pool(1, MAX_SEQ_LEN), tok.eos_token_ids, tok.decode

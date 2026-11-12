@@ -8,7 +8,7 @@ import pytest
 import torch
 
 from tests.unit.models import fixtures
-from vinfer.config import EngineConfig, StateConfig
+from vinfer.config import EngineConfig, KernelConfig, StateConfig
 from vinfer.engine import build_engine
 from vinfer.models import CausalLM, load_model
 
@@ -40,4 +40,4 @@ def test_engine_parts_follow_the_config(checkpoint):
 def test_unknown_model_type_is_rejected(tmp_path):
     (tmp_path / "config.json").write_text(json.dumps({"model_type": "llama"}))
     with pytest.raises(ValueError, match="unsupported model_type"):
-        load_model(tmp_path, torch.float32, "cpu")
+        load_model(tmp_path, torch.float32, "cpu", KernelConfig())

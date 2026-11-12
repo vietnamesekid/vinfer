@@ -100,6 +100,13 @@ class StatePool:
             for t in buffers.values():
                 t[dst].copy_(t[src])
 
+    def check_fits(self, end: int) -> None:
+        """Raise ``ValueError`` if a sequence of ``end`` positions does not fit in a slot."""
+        if end > self.max_seq_len:
+            raise ValueError(
+                f"sequence of {end} tokens exceeds the slot capacity {self.max_seq_len}"
+            )
+
     @property
     def num_free(self) -> int:
         return len(self._free)
