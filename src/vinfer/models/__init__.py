@@ -31,6 +31,12 @@ def _qwen(path: Path, dtype: torch.dtype, device: torch.device, kernels: Kernels
 LOADERS: dict[str, Loader] = {"qwen3": _qwen, "qwen3_5": _qwen, "qwen3_5_text": _qwen}
 
 
+def read_model_type(path: str | Path) -> str | None:
+    """The checkpoint's ``model_type`` (top level, else ``text_config``), from ``config.json``."""
+    raw = json.loads((Path(path) / "config.json").read_text())
+    return raw.get("model_type") or raw.get("text_config", {}).get("model_type")
+
+
 def load_model(
     path: str | Path,
     dtype: torch.dtype,
@@ -40,11 +46,10 @@ def load_model(
     """Load the checkpoint at ``path`` with the kernel backends ``kernels`` names, which fail
     here if they cannot run on ``device`` in ``dtype``."""
     path, device = Path(path), torch.device(device)
-    raw = json.loads((path / "config.json").read_text())
-    model_type = raw.get("model_type") or raw.get("text_config", {}).get("model_type")
+    model_type = read_model_type(path)
     if model_type not in LOADERS:
         raise ValueError(f"unsupported model_type {model_type!r}; supported: {sorted(LOADERS)}")
     return LOADERS[model_type](path, dtype, device, resolve_kernels(kernels, device, dtype))
 
 
-__all__ = ["LOADERS", "CausalLM", "load_model"]
+__all__ = ["LOADERS", "CausalLM", "load_model", "read_model_type"]

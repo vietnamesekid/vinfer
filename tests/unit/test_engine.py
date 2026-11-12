@@ -10,7 +10,7 @@ import torch
 from tests.unit.models import fixtures
 from vinfer.config import EngineConfig, KernelConfig, StateConfig
 from vinfer.engine import build_engine
-from vinfer.models import CausalLM, load_model
+from vinfer.models import CausalLM, load_model, read_model_type
 
 pytest.importorskip("transformers")
 
@@ -35,6 +35,13 @@ def test_engine_parts_follow_the_config(checkpoint):
     k, _ = engine.pool.kv(1, 0)  # layer 1 is full attention in the tiny config
     assert k.dtype == torch.bfloat16 and k.device == engine.model.device
     assert engine.pool.ssm_state(0, 0).dtype == torch.float32  # mamba_ssm_dtype default
+
+
+def test_model_type_is_read_from_the_top_level_or_the_text_config(tmp_path):
+    (tmp_path / "config.json").write_text(json.dumps({"text_config": {"model_type": "qwen3"}}))
+    assert read_model_type(tmp_path) == "qwen3"
+    (tmp_path / "config.json").write_text(json.dumps({"model_type": "qwen3_5"}))
+    assert read_model_type(tmp_path) == "qwen3_5"
 
 
 def test_unknown_model_type_is_rejected(tmp_path):
