@@ -49,9 +49,14 @@ select = ["E", "F", "W", "I", "B", "UP", "SIM", "RUF", "TID251"]
 "sglang".msg = "SGLang is a baseline only; use it from bench/baselines/, not src/."
 "text_generation_server".msg = "TGI is a baseline only."
 "llama_cpp".msg = "llama.cpp is a baseline only."
+# HF Transformers is the correctness reference: the engine may use its tokenizer, never its models.
+"transformers.models".msg = "HF modeling is the correctness reference; only tests/ and bench/ may use it."
+"transformers.AutoModel".msg = "HF modeling is the correctness reference; only tests/ and bench/ may use it."
+"transformers.AutoModelForCausalLM".msg = "HF modeling is the correctness reference; only tests/ and bench/ may use it."
 
 [tool.ruff.lint.per-file-ignores]
 "bench/**" = ["TID251"]
+"tests/**" = ["TID251"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
