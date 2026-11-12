@@ -24,8 +24,9 @@ from vinfer.kernels.gdn import (
 )
 from vinfer.kernels.norm import rms_norm, rms_norm_gated, rms_norm_offset
 from vinfer.kernels.rope import apply_rope, rope_cos_sin, rope_inv_freq
+from vinfer.models.base import CausalLM
 from vinfer.models.qwen.config import QwenConfig
-from vinfer.state import StatePool
+from vinfer.state import LayerStateSpec, StatePool
 
 
 def _linear(in_features: int, out_features: int) -> nn.Linear:
@@ -175,9 +176,9 @@ class DecoderLayer(nn.Module):
         )
 
 
-class QwenModel(nn.Module):
-    def __init__(self, cfg: QwenConfig) -> None:
-        super().__init__()
+class QwenModel(CausalLM):
+    def __init__(self, cfg: QwenConfig, dtype: torch.dtype, device: torch.device) -> None:
+        super().__init__(dtype, device)
         self.cfg = cfg
         self.embed_tokens = nn.Embedding(cfg.vocab_size, cfg.hidden_size)
         self.layers = nn.ModuleList(DecoderLayer(cfg, t) for t in cfg.layer_types)
@@ -187,17 +188,12 @@ class QwenModel(nn.Module):
             "inv_freq", rope_inv_freq(cfg.rotary_dim, cfg.rope_theta), persistent=False
         )
 
-    def new_state_pool(
-        self, num_slots: int, max_seq_len: int, device: str | torch.device | None = None
-    ) -> StatePool:
-        return StatePool(
-            self.cfg.state_specs(),
-            num_slots=num_slots,
-            max_seq_len=max_seq_len,
-            dtype=self.embed_tokens.weight.dtype,
-            ssm_dtype=self.cfg.ssm_dtype,
-            device=device or self.embed_tokens.weight.device,
-        )
+    def state_specs(self) -> list[LayerStateSpec]:
+        return self.cfg.state_specs()
+
+    @property
+    def ssm_dtype(self) -> torch.dtype:
+        return self.cfg.ssm_dtype
 
     @torch.inference_mode()
     def forward_hidden(

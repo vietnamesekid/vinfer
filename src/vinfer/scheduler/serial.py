@@ -12,6 +12,7 @@ import threading
 from collections.abc import AsyncIterator, Callable
 from concurrent.futures import ThreadPoolExecutor
 
+from vinfer.models.base import CausalLM
 from vinfer.runtime import SamplingParams, Step, generate
 from vinfer.state import StatePool
 
@@ -21,7 +22,7 @@ _DONE = object()
 class SerialScheduler:
     def __init__(
         self,
-        model,
+        model: CausalLM,
         pool: StatePool,
         eos_token_ids: frozenset[int] = frozenset(),
         decode: Callable[[list[int]], str] | None = None,

@@ -51,13 +51,12 @@ def internal_name(name: str) -> str | None:
     raise ValueError(f"unexpected tensor name {name!r}")
 
 
-def load_qwen(
-    path: str | Path, dtype: torch.dtype = torch.bfloat16, device: str | torch.device = "cpu"
-) -> QwenModel:
-    path = Path(path)
+def load_qwen(path: str | Path, dtype: torch.dtype, device: str | torch.device) -> QwenModel:
+    """Load the checkpoint at ``path`` onto ``device``; activations and caches in ``dtype``."""
+    path, device = Path(path), torch.device(device)
     cfg = QwenConfig.from_hf(json.loads((path / "config.json").read_text()))
     with torch.device("meta"):
-        model = QwenModel(cfg)
+        model = QwenModel(cfg, dtype=dtype, device=device)
     params = dict(model.named_parameters())
     tensors: dict[str, torch.Tensor] = {}
     lm_head: torch.Tensor | None = None

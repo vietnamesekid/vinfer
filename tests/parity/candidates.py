@@ -166,16 +166,16 @@ class VinferCandidate:
         lm_head_chunk: int = 1024,
         model=None,
     ) -> None:
-        from vinfer.models.qwen import load_qwen
+        from vinfer.models import load_model
 
-        self.model = model if model is not None else load_qwen(path, DTYPES[dtype], device)
+        self.model = model if model is not None else load_model(path, DTYPES[dtype], device)
         self.prefill_chunk = prefill_chunk
         self.lm_head_chunk = lm_head_chunk
         self.name = f"vinfer[{dtype},prefill_chunk={prefill_chunk}]"
 
     def hidden(self, ids: list[int], layer_outputs: list | None = None) -> torch.Tensor:
         model = self.model
-        device = model.embed_tokens.weight.device
+        device = model.device
         pool = model.new_state_pool(num_slots=1, max_seq_len=len(ids))
         slot = pool.alloc()
         pieces = []

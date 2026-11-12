@@ -78,7 +78,7 @@ def main() -> None:
 
     from bench.harness.config import pinned_revision
     from tests.parity import prompt_set
-    from vinfer.models.qwen import load_qwen
+    from vinfer.models import load_model
 
     revision = a.revision or pinned_revision(a.model)
     tok = AutoTokenizer.from_pretrained(a.model, revision=revision)
@@ -90,7 +90,7 @@ def main() -> None:
         a.model, revision=revision, dtype=DTYPES[a.dtype], device_map=a.device
     ).eval()
     path = snapshot_download(a.model, revision=revision, allow_patterns=["*.json", "*.safetensors"])
-    ours = load_qwen(path, DTYPES[a.dtype], a.device)
+    ours = load_model(path, DTYPES[a.dtype], a.device)
     print(f"{a.model} @ {revision[:8]}, {a.dtype}, prompt {a.prompt} ({len(ids)} tokens)")
     print(f"{'layer':>7} {'max_abs':>10} {'mean_abs':>10} {'max_rel':>10}")
     for r in layer_diffs(hf, ours, ids):

@@ -39,7 +39,7 @@ def _free_port() -> int:
 def server(tmp_path_factory):
     path = fixtures.save(fixtures.hf_qwen3_5(), tmp_path_factory.mktemp("srv"))
     fixtures.save_tiny_tokenizer(path)
-    model = load_qwen(path, torch.float32)
+    model = load_qwen(path, torch.float32, "cpu")
     tokenizer = Tokenizer(path)
     pool = model.new_state_pool(num_slots=1, max_seq_len=128)
     scheduler = SerialScheduler(model, pool, tokenizer.eos_token_ids, tokenizer.decode)

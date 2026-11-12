@@ -12,6 +12,7 @@ from dataclasses import dataclass
 
 import torch
 
+from vinfer.models.base import CausalLM
 from vinfer.runtime.sampler import SamplingParams, sample
 from vinfer.state import StatePool
 
@@ -66,7 +67,7 @@ class _TextStream:
 
 
 def generate(
-    model,
+    model: CausalLM,
     pool: StatePool,
     prompt_ids: list[int],
     params: SamplingParams,
@@ -88,7 +89,7 @@ def generate(
     seed = params.seed if params.seed is not None else random.getrandbits(63)
     stream = _TextStream(decode, params.stop) if decode else None
     stop_ids = set(params.stop_token_ids) | (set() if params.ignore_eos else set(eos_token_ids))
-    device = model.embed_tokens.weight.device
+    device = model.device
     slot = pool.alloc()
     try:
         ids = torch.tensor(prompt_ids, device=device)
