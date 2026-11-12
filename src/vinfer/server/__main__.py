@@ -9,7 +9,7 @@ import argparse
 
 import torch
 
-from vinfer.config import EngineConfig, StateConfig
+from vinfer.config import EngineConfig, KernelConfig, StateConfig
 
 
 def main() -> None:
@@ -19,6 +19,8 @@ def main() -> None:
     p.add_argument("--dtype", default="bfloat16", choices=["bfloat16", "float16", "float32"])
     p.add_argument("--device", default="cuda" if torch.cuda.is_available() else "cpu")
     p.add_argument("--max-seq-len", type=int, default=StateConfig.max_seq_len)
+    p.add_argument("--kernels", help="e.g. attention_backend=reference,gdn_backend=reference")
+    p.add_argument("--seed", type=int, default=0, help="seeds requests that do not give one")
     p.add_argument("--host", default="127.0.0.1")
     p.add_argument("--port", type=int, default=8000)
     a = p.parse_args()
@@ -33,11 +35,17 @@ def main() -> None:
         model=a.model,
         dtype=a.dtype,
         device=a.device,
+        seed=a.seed,
+        kernels=KernelConfig.from_string(a.kernels),
         state=StateConfig(num_slots=1, max_seq_len=a.max_seq_len),
     )
     engine = build_engine(cfg)
     scheduler = SerialScheduler(
-        engine.model, engine.pool, engine.tokenizer.eos_token_ids, engine.tokenizer.decode
+        engine.model,
+        engine.pool,
+        engine.tokenizer.eos_token_ids,
+        engine.tokenizer.decode,
+        seed=cfg.seed,
     )
     app = create_app(scheduler, engine.tokenizer, a.served_model_name or a.model)
     uvicorn.run(app, host=a.host, port=a.port, log_level="warning")

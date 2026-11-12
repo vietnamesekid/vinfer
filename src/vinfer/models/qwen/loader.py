@@ -63,7 +63,7 @@ def load_qwen(
     path, device = Path(path), torch.device(device)
     cfg = QwenConfig.from_hf(json.loads((path / "config.json").read_text()))
     with torch.device("meta"):
-        model = QwenModel(cfg, kernels, dtype=dtype, device=device)
+        model = QwenModel(cfg, kernels, dtype=dtype)
     params = dict(model.named_parameters())
     tensors: dict[str, torch.Tensor] = {}
     lm_head: torch.Tensor | None = None

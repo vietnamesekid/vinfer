@@ -49,9 +49,15 @@ class _TextStream:
     def _decode_new(self, final: bool) -> None:
         before = self.decode(self.tokens[self.prefix : self.read])
         after = self.decode(self.tokens[self.prefix :])
-        if len(after) > len(before) and (final or not after.endswith("\ufffd")):
+        if after.endswith("\ufffd") and not final:
+            return  # an unfinished UTF-8 sequence: wait for the next token
+        if len(after) > len(before):
             self.text += after[len(before) :]
-            self.prefix, self.read = self.read, len(self.tokens)
+        elif after != before:
+            return  # the new tokens changed earlier text: keep the window until it settles
+        # Advance also when the new tokens add no text (e.g. skipped special tokens), so the
+        # window stays a few tokens long.
+        self.prefix, self.read = self.read, len(self.tokens)
 
     def push(self, token_id: int | None) -> tuple[str, bool]:
         """Add a token (``None``: no token, flush). Returns ``(delta, hit_stop)``."""

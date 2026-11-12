@@ -34,9 +34,17 @@ class Tokenizer:
         return ids
 
     def chat_ids(self, messages: list[dict[str, Any]], **template_kwargs: Any) -> list[int]:
-        ids = self._tok.apply_chat_template(
-            messages, add_generation_prompt=True, tokenize=True, **template_kwargs
-        )
+        """Token ids of ``messages`` through the chat template. A template that rejects the
+        messages (Qwen's call ``raise_exception``) raises ``ValueError``: it is the request's
+        fault, not the server's."""
+        from jinja2 import TemplateError
+
+        try:
+            ids = self._tok.apply_chat_template(
+                messages, add_generation_prompt=True, tokenize=True, **template_kwargs
+            )
+        except TemplateError as exc:
+            raise ValueError(f"chat template rejected the messages: {exc}") from exc
         if hasattr(ids, "keys"):  # some versions return a BatchEncoding
             ids = ids["input_ids"]
         return list(ids)

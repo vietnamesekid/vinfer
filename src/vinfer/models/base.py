@@ -16,19 +16,20 @@ from vinfer.state import LayerStateSpec, StatePool
 
 
 class CausalLM(nn.Module, ABC):
-    def __init__(self, dtype: torch.dtype, device: torch.device) -> None:
+    def __init__(self, dtype: torch.dtype) -> None:
         super().__init__()
         self._dtype = dtype
-        self._device = torch.device(device)
 
     @property
     def dtype(self) -> torch.dtype:
-        """Activation and cache dtype (some weights may be stored in fp32)."""
+        """Activation and cache dtype, fixed when the model is built (some weights may be stored
+        in fp32, so it cannot be read off the parameters). Build a new model to change it."""
         return self._dtype
 
     @property
     def device(self) -> torch.device:
-        return self._device
+        """Where the weights are (read from them, so it cannot go stale)."""
+        return next(self.parameters()).device
 
     @abstractmethod
     def state_specs(self) -> list[LayerStateSpec]:

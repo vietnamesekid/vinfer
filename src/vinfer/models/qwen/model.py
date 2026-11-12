@@ -181,10 +181,8 @@ class DecoderLayer(nn.Module):
 
 
 class QwenModel(CausalLM):
-    def __init__(
-        self, cfg: QwenConfig, kernels: Kernels, dtype: torch.dtype, device: torch.device
-    ) -> None:
-        super().__init__(dtype, device)
+    def __init__(self, cfg: QwenConfig, kernels: Kernels, dtype: torch.dtype) -> None:
+        super().__init__(dtype)
         self.cfg = cfg
         self.embed_tokens = nn.Embedding(cfg.vocab_size, cfg.hidden_size)
         self.layers = nn.ModuleList(

@@ -64,3 +64,40 @@ def test_omitted_max_tokens_means_the_rest_of_the_context(client):
     c, prompt_len = client
     r = _post(c, ignore_eos=True, temperature=0)
     assert r.json()["usage"]["completion_tokens"] == MAX_SEQ_LEN - prompt_len + 1
+
+
+@pytest.mark.parametrize(
+    "bad", [{"stop": [1]}, {"stop": 5}, {"stop_token_ids": ["a"]}, {"stop_token_ids": [True]}]
+)
+def test_malformed_stop_settings_are_400_not_an_error_inside_the_stream(client, bad):
+    # Bug: a non-string stop entry passed validation and failed in the generation thread,
+    # inside a 200 stream.
+    c, _ = client
+    assert _post(c, max_tokens=3, stream=True, **bad).status_code == 400
+
+
+def test_a_template_rejecting_the_messages_is_400(tmp_path):
+    # Bug: Qwen templates call raise_exception (a jinja2 TemplateError), which the server did
+    # not catch, so the client got a 500.
+    from transformers import AutoTokenizer
+
+    path = fixtures.save(fixtures.hf_qwen3(), tmp_path)
+    fixtures.save_tiny_tokenizer(path)
+    tok = AutoTokenizer.from_pretrained(str(path))
+    tok.chat_template = (
+        "{% if messages[-1]['role'] != 'user' %}{{ raise_exception('last turn must be user') }}"
+        "{% endif %}" + fixtures.CHAT_TEMPLATE
+    )
+    tok.save_pretrained(path)
+    model = fixtures.load(path)
+    tokenizer = Tokenizer(path)
+    scheduler = SerialScheduler(
+        model, model.new_state_pool(1, MAX_SEQ_LEN), tokenizer.eos_token_ids
+    )
+    with testclient.TestClient(create_app(scheduler, tokenizer, "tiny")) as c:
+        r = c.post(
+            "/v1/chat/completions",
+            json={"model": "tiny", "messages": [{"role": "system", "content": "w1"}]},
+        )
+    scheduler.close()
+    assert r.status_code == 400 and "last turn must be user" in r.text

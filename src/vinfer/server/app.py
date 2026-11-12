@@ -31,6 +31,14 @@ def sampling_params(body: dict[str, Any], default_max_tokens: int) -> SamplingPa
     if body.get("n", 1) != 1:
         raise ValueError("only n = 1 is supported")
     stop = body.get("stop") or ()
+    stop = (stop,) if isinstance(stop, str) else stop
+    if not isinstance(stop, list | tuple) or not all(isinstance(s, str) for s in stop):
+        raise ValueError("stop must be a string or a list of strings")
+    stop_token_ids = body.get("stop_token_ids") or ()
+    if not isinstance(stop_token_ids, list | tuple) or not all(
+        isinstance(t, int) and not isinstance(t, bool) for t in stop_token_ids
+    ):
+        raise ValueError("stop_token_ids must be a list of integers")
     max_tokens = body.get("max_completion_tokens")
     if max_tokens is None:
         max_tokens = body.get("max_tokens")
@@ -42,8 +50,8 @@ def sampling_params(body: dict[str, Any], default_max_tokens: int) -> SamplingPa
         top_k=int(body.get("top_k") or 0),
         top_p=float(body.get("top_p", 1.0)),
         seed=body.get("seed"),
-        stop=(stop,) if isinstance(stop, str) else tuple(stop),
-        stop_token_ids=tuple(body.get("stop_token_ids") or ()),
+        stop=tuple(stop),
+        stop_token_ids=tuple(stop_token_ids),
         ignore_eos=bool(body.get("ignore_eos", False)),
     )
 

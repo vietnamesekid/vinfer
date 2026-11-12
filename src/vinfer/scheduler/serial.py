@@ -8,6 +8,8 @@ A consumer that stops reading (client gone) cancels its request at the next toke
 from __future__ import annotations
 
 import asyncio
+import dataclasses
+import random
 import threading
 from collections.abc import AsyncIterator, Callable
 from concurrent.futures import ThreadPoolExecutor
@@ -26,8 +28,12 @@ class SerialScheduler:
         pool: StatePool,
         eos_token_ids: frozenset[int] = frozenset(),
         decode: Callable[[list[int]], str] | None = None,
+        seed: int = 0,
     ) -> None:
+        """``seed`` (``EngineConfig.seed``) seeds the per-request seeds of requests that do not
+        give one, so a run of the server is reproducible."""
         self.model = model
+        self._rng = random.Random(seed)
         self.pool = pool
         self.eos_token_ids = eos_token_ids
         self.decode = decode
@@ -39,6 +45,8 @@ class SerialScheduler:
         return self.pool.max_seq_len
 
     async def stream(self, prompt_ids: list[int], params: SamplingParams) -> AsyncIterator[Step]:
+        if params.seed is None:
+            params = dataclasses.replace(params, seed=self._rng.getrandbits(63))
         loop = asyncio.get_running_loop()
         queue: asyncio.Queue = asyncio.Queue()
         cancelled = threading.Event()
